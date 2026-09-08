@@ -23,12 +23,14 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 /** Bumped by hand when the server changes; shown in the web UI. */
-const VERSION = '0.2.0'
+const VERSION = '0.2.1'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')
 const ADMIN_TOKEN = process.env.PRCY_ADMIN_TOKEN ?? ''
 const INVITE_CODE = process.env.PRCY_INVITE_CODE ?? ''
+/** Set when a reverse proxy sits in front, so forwarded client IPs are real. */
+const TRUST_PROXY = process.env.PRCY_TRUST_PROXY === '1'
 
 /**
  * The largest body accepted in one request. Anything bigger has to arrive as
@@ -93,6 +95,24 @@ function secretMatches(given, want) {
 }
 
 const bearer = (header) => String(header ?? '').replace(/^Bearer\s+/i, '')
+
+/**
+ * Who a request came from, for rate limiting.
+ *
+ * Behind a reverse proxy every request arrives from the proxy, so without
+ * PRCY_TRUST_PROXY one person guessing passwords would lock out everyone else.
+ * Forwarded headers are only believed when that is set, because anyone can send
+ * them to a server that is reachable directly.
+ */
+function clientIp(req) {
+  if (TRUST_PROXY) {
+    const forwarded =
+      req.headers['cf-connecting-ip'] ??
+      String(req.headers['x-forwarded-for'] ?? '').split(',')[0].trim()
+    if (forwarded) return String(forwarded)
+  }
+  return String(req.socket.remoteAddress ?? 'unknown')
+}
 
 function readBody(req, limit) {
   return new Promise((resolve, reject) => {
@@ -1014,7 +1034,7 @@ setInterval(
 const server = http.createServer(async (req, res) => {
   try {
     const { pathname } = new URL(req.url, 'http://x')
-    const ip = String(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress ?? 'unknown')
+    const ip = clientIp(req)
 
     if (pathname === '/' || pathname === '/index.html') return await serveUi(res)
 
@@ -1151,4 +1171,5 @@ server.listen(PORT, async () => {
   console.log(`prcy-sync listening on :${PORT}, data in ${DATA}`)
   console.log(`${db.users.length} account(s); registration ${INVITE_CODE ? 'open with invite code' : 'closed'}`)
   console.log(`max body ${Math.round(CHUNK_LIMIT / 1024 / 1024)} MB per request, larger uploads are chunked`)
+  if (TRUST_PROXY) console.log('trusting X-Forwarded-For — only correct behind a reverse proxy')
 })

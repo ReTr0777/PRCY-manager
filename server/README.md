@@ -144,6 +144,17 @@ If you do publish it, terminate TLS in front (Nginx Proxy Manager, Caddy,
 Traefik) — the token is the only thing between a stranger and your saves, and
 plain HTTP hands it to anyone on the path.
 
+Set **`PRCY_TRUST_PROXY=1`** when you do. Behind a proxy every request arrives
+from the proxy's address, so without it one person guessing passwords would
+trip the rate limit for everybody. With it set, `X-Forwarded-For` (and
+Cloudflare's `CF-Connecting-IP`) is believed instead. Leave it unset otherwise:
+a directly reachable server must not trust a header anyone can invent.
+
+Two settings the proxy itself needs: a request body limit at or above
+`PRCY_CHUNK_MB` — nginx defaults to **1 MB**, which is smaller than a single
+chunk and will break uploads — and a read timeout long enough for a slow chunk,
+a few minutes rather than the default sixty seconds.
+
 ### Cloudflare and upload speed
 
 Two things to know if you put this behind Cloudflare, whether proxied DNS or a
