@@ -23,7 +23,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 /** Bumped by hand when the server changes; shown in the web UI. */
-const VERSION = '0.3.0'
+const VERSION = '0.4.0'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')
@@ -614,6 +614,7 @@ async function adminStatus(res) {
     supervised: process.env.PRCY_LAUNCHER === '1',
     canRollBack: fs.existsSync(path.join(LIVE_DIR, 'index.js.prev')),
     app: (await loadAppIndex()).releases[0] ?? null,
+    sharePath: (await loadAppIndex()).share ? `/d/${(await loadAppIndex()).share.token}` : null,
     registrationOpen: Boolean(INVITE_CODE),
     chunkBytes: CHUNK_LIMIT,
     accounts,
@@ -820,7 +821,59 @@ async function rollBackUpdate(res) {
  */
 const SAFE_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]{1,20})?$/
 
-const loadAppIndex = () => readJson(APP_INDEX, { releases: [] })
+const loadAppIndex = () => readJson(APP_INDEX, { releases: [], share: null })
+
+/**
+ * A download link for people who have no account here — someone you are giving
+ * the app to, who cannot sign in until they have it. The token is 16 random
+ * bytes in the path and nothing else: unguessable, revocable, and it only ever
+ * serves the newest installer.
+ */
+async function createShareLink(res, req) {
+  const index = await loadAppIndex()
+  index.share = { token: crypto.randomBytes(16).toString('hex'), createdAt: Date.now() }
+  await writeJsonAtomic(APP_INDEX, index)
+  send(res, 200, { path: `/d/${index.share.token}`, createdAt: index.share.createdAt })
+}
+
+async function revokeShareLink(res) {
+  const index = await loadAppIndex()
+  index.share = null
+  await writeJsonAtomic(APP_INDEX, index)
+  send(res, 200, { ok: true })
+}
+
+/**
+ * GET /d/:token — the newest installer, no account needed. Wrong guesses are
+ * counted per address; the token itself is far too large to guess, but there is
+ * no reason to let anyone sit here trying.
+ */
+async function shareDownload(req, res, token, ip, headOnly = false) {
+  if (throttled(`share:${ip}`)) return send(res, 429, { error: 'too many attempts' })
+  const index = await loadAppIndex()
+  const share = index.share
+  if (!share || !secretMatches(token, share.token)) {
+    noteFailure(`share:${ip}`)
+    return send(res, 404, { error: 'not found' })
+  }
+  const latest = index.releases[0]
+  if (!latest) return send(res, 404, { error: 'no build published yet' })
+
+  const file = path.join(APP_DIR_STORE, `${latest.version}.exe`)
+  try {
+    const stat = await fsp.stat(file)
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': stat.size,
+      'Content-Disposition': `attachment; filename="PRCY Manager Setup ${latest.version}.exe"`,
+      'Cache-Control': 'no-store'
+    })
+    if (headOnly) res.end()
+    else fs.createReadStream(file).pipe(res)
+  } catch {
+    send(res, 404, { error: 'not found' })
+  }
+}
 
 /** Newest first by version, so "latest" is just the head. */
 function compareVersions(a, b) {
@@ -1150,6 +1203,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     const parts = pathname.split('/').filter(Boolean)
+
+    // The share link is deliberately outside /v1 and outside auth.
+    if (parts[0] === 'd' && parts.length === 2 && (req.method === 'GET' || req.method === 'HEAD')) {
+      // Download managers ask with HEAD before fetching; answer both.
+      return await shareDownload(req, res, parts[1], ip, req.method === 'HEAD')
+    }
+
     if (parts[0] !== 'v1') return send(res, 404, { error: 'not found' })
 
     // Unauthenticated: getting in.
@@ -1169,6 +1229,10 @@ const server = http.createServer(async (req, res) => {
       if (!isAdmin(req)) return send(res, 401, { error: 'unauthorized' })
 
       if (parts[2] === 'status' && req.method === 'GET') return await adminStatus(res)
+      if (parts[2] === 'app' && parts[3] === 'share') {
+        if (req.method === 'POST') return await createShareLink(res, req)
+        if (req.method === 'DELETE') return await revokeShareLink(res)
+      }
       if (parts[2] === 'update' && parts[3] === 'check' && req.method === 'GET') {
         return await checkUpdate(res)
       }
