@@ -199,6 +199,10 @@ with `npm run dist`, then put it on the server:
 PRCY_URL=http://tower.local:8787 PRCY_ADMIN_TOKEN=… npm run publish
 ```
 
+The console can also mint a no-account **share link** for the newest build — an
+unguessable path that serves the installer to someone who does not have the app
+yet and so cannot sign in to get it. Revocable from the same place.
+
 It uploads in chunks like a save does, and only the admin token may publish — a
 signed-in account is refused. Each device sees the new version under
 **Settings → App updates**, downloads it, checks it against the SHA-256 the
