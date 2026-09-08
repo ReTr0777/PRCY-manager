@@ -838,3 +838,53 @@ select:focus {
   font-size: 12px;
   white-space: nowrap;
 }
+
+/* --- cross-device title matches ------------------------------------------ */
+
+.match-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.match-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 9px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.match-list li.applied {
+  opacity: 0.55;
+}
+
+.match-names {
+  min-width: 0;
+}
+
+.match-names .dim {
+  display: inline-block;
+  min-width: 74px;
+  font-size: 12px;
+}
+
+.badge-save {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 9px;
+  font-size: 11px;
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+.ok-text {
+  color: var(--ok);
+  font-size: 12px;
+  grid-column: span 2;
+  text-align: right;
+}

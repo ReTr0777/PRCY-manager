@@ -105,6 +105,27 @@ export interface SyncResult {
   coversDownloaded: number
   /** Games needing a decision before their saves can sync. */
   conflicts: SaveConflict[]
+  /** Games that look like another device's copy under a slightly different name. */
+  suggestions: TitleSuggestion[]
+}
+
+/**
+ * A local game whose title nearly matches one already on the server. Sync pairs
+ * games by title, so these two would stay separate until one side is renamed.
+ */
+export interface TitleSuggestion {
+  gameId: string
+  localTitle: string
+  localFolder: string
+  remoteTitle: string
+  /** The device that last wrote the other entry, so the prompt can name it. */
+  remoteDevice: string | null
+  /** 0..1, how alike the two titles are. */
+  similarity: number
+  /** True when the other side has saves waiting, which is the real prize. */
+  remoteHasSave: boolean
+  /** The folder could be renamed to this; null when the name is unusable. */
+  folderRenameTo: string | null
 }
 
 export interface SaveConflict {

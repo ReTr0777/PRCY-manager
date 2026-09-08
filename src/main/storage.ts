@@ -2,6 +2,7 @@ import { app, shell } from 'electron'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { gameId as folderId } from './scanner'
 import { store } from './store'
 import type { AppStorageUsage, DriveUsage, Game, StorageReport } from '../shared/types'
 
@@ -239,4 +240,70 @@ export async function pruneCovers(): Promise<{ removed: number; freed: number }>
     }
   }
   return { removed, freed }
+}
+
+/**
+ * Renames a game's folder on disk and repoints everything at the new path.
+ *
+ * The id is derived from the folder, so it has to move too: leaving the old one
+ * would let a future game at the old path be given the same id. Tokenised save
+ * paths need no work — {GAMEDIR} follows the folder by definition — but any
+ * absolute path recorded inside it does.
+ */
+export async function renameGameFolder(
+  id: string,
+  newName: string
+): Promise<{ ok: boolean; error?: string; folder?: string; id?: string }> {
+  const game = store.findGame(id)
+  if (!game) return { ok: false, error: 'No such game.' }
+
+  const from = game.folder
+  const to = path.join(path.dirname(from), newName)
+  if (from === to) return { ok: true, folder: from, id }
+  if (!fs.existsSync(from)) return { ok: false, error: 'That folder is no longer on disk.' }
+  // A case-only rename is fine; anything else must not overwrite a real folder.
+  if (fs.existsSync(to) && to.toLowerCase() !== from.toLowerCase()) {
+    return { ok: false, error: `There is already a folder called ${newName} beside it.` }
+  }
+
+  try {
+    await fsp.rename(from, to)
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code
+    const why =
+      code === 'EPERM' || code === 'EBUSY'
+        ? 'something has a file in it open — close the game or Explorer and try again'
+        : (err as Error).message
+    return { ok: false, error: `Could not rename the folder: ${why}.` }
+  }
+
+  /**
+   * Repoints a path that lived inside the old folder. Comparing prefixes as
+   * text is not enough: a stored path can use forward slashes while a path
+   * built here uses backslashes, and the two would never match. path.relative
+   * normalises both, and anything outside the folder — an absolute save
+   * location elsewhere, a "{GAMEDIR}" token — comes back untouched.
+   */
+  const moved = (target: string): string => {
+    const relative = path.relative(from, target)
+    if (!relative) return to
+    if (relative.startsWith('..') || path.isAbsolute(relative)) return target
+    return path.join(to, relative)
+  }
+
+  const nextId = folderId(to)
+  store.updateGame(
+    id,
+    {
+      id: nextId,
+      folder: to,
+      exePath: game.exePath ? moved(game.exePath) : null,
+      exeCandidates: game.exeCandidates.map((c) => ({ ...c, path: moved(c.path) })),
+      coverPath: game.coverPath ? moved(game.coverPath) : null,
+      savePaths: game.savePaths.map(moved)
+    },
+    false
+  )
+  store.save()
+  return { ok: true, folder: to, id: nextId }
 }

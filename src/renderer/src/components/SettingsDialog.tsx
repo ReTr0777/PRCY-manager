@@ -1,16 +1,17 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import SyncSettings from './SyncSettings'
-import type { AppState, SaveConflict } from '../../../shared/types'
+import type { AppState, SaveConflict, TitleSuggestion } from '../../../shared/types'
 
 interface Props {
   state: AppState
   onClose: () => void
   onToast: (message: string) => void
   onConflicts: (conflicts: SaveConflict[]) => void
+  onMatches: (suggestions: TitleSuggestion[]) => void
 }
 
-export default function SettingsDialog({ state, onClose, onToast, onConflicts }: Props): JSX.Element {
+export default function SettingsDialog({ state, onClose, onToast, onConflicts, onMatches }: Props): JSX.Element {
   const [dataPath, setDataPath] = useState('')
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
@@ -125,7 +126,7 @@ export default function SettingsDialog({ state, onClose, onToast, onConflicts }:
           </p>
         </section>
 
-        <SyncSettings state={state} onToast={onToast} onConflicts={onConflicts} />
+        <SyncSettings state={state} onToast={onToast} onConflicts={onConflicts} onMatches={onMatches} />
 
         <section>
           <h3>Hidden vault</h3>

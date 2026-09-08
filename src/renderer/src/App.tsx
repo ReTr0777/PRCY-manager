@@ -7,8 +7,9 @@ import VaultDialog from './components/VaultDialog'
 import SettingsDialog from './components/SettingsDialog'
 import StorageDialog from './components/StorageDialog'
 import ConflictDialog from './components/ConflictDialog'
+import MatchDialog from './components/MatchDialog'
 import Toast from './components/Toast'
-import type { AppState, Game, SaveConflict } from '../../shared/types'
+import type { AppState, Game, SaveConflict, TitleSuggestion } from '../../shared/types'
 
 export type View = { kind: 'all' | 'favorites' | 'recent' | 'unplayed' | 'hidden' | 'missing' } | { kind: 'root'; id: string }
 
@@ -45,6 +46,7 @@ export default function App(): JSX.Element {
   const [showStorage, setShowStorage] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
   const [conflicts, setConflicts] = useState<SaveConflict[]>([])
+  const [matches, setMatches] = useState<TitleSuggestion[]>([])
 
   useEffect(() => {
     api.getState().then(setState)
@@ -241,7 +243,12 @@ export default function App(): JSX.Element {
           onClose={() => setShowSettings(false)}
           onToast={setToast}
           onConflicts={setConflicts}
+          onMatches={setMatches}
         />
+      )}
+
+      {matches.length > 0 && (
+        <MatchDialog suggestions={matches} onClose={() => setMatches([])} onToast={setToast} />
       )}
 
       {conflicts.length > 0 && (

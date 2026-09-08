@@ -4,7 +4,9 @@ import path from 'node:path'
 import { applyCover, fetchMissingCovers, searchCovers } from './covers'
 import { describe, detectSaveLocations, tokenise } from './savepaths'
 import {
+  applyTitleMatch,
   changeServerPassword,
+  dismissTitleMatch,
   listDevices,
   resolveConflict,
   revokeDevice,
@@ -302,6 +304,24 @@ export function registerIpc(): void {
     broadcast()
     return result
   })
+
+  ipcMain.handle(
+    'sync:applyMatch',
+    async (_e, gameId: string, remoteTitle: string, renameFolder: boolean) => {
+      // Renaming a folder out from under a running game would break it.
+      if (renameFolder && launcher.isRunning(gameId)) {
+        return { ok: false, error: 'Close the game first — its folder cannot be renamed while it runs.' }
+      }
+      if (!reachable(gameId)) return { ok: false, error: 'Game is locked.' }
+      const result = await applyTitleMatch(gameId, remoteTitle, renameFolder)
+      broadcast()
+      return result
+    }
+  )
+
+  ipcMain.handle('sync:dismissMatch', (_e, gameId: string, remoteTitle: string) =>
+    dismissTitleMatch(gameId, remoteTitle)
+  )
 
   ipcMain.handle('sync:resolve', async (_e, gameId: string, choice: ConflictChoice) => {
     const done = await resolveConflict(gameId, choice)

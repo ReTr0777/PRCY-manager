@@ -67,6 +67,14 @@ const api = {
   syncChangePassword: (current: string, next: string): Promise<Result> =>
     ipcRenderer.invoke('sync:changePassword', current, next),
   syncNow: (): Promise<SyncResult> => ipcRenderer.invoke('sync:now'),
+  applyTitleMatch: (
+    gameId: string,
+    remoteTitle: string,
+    renameFolder: boolean
+  ): Promise<Result & { folder?: string }> =>
+    ipcRenderer.invoke('sync:applyMatch', gameId, remoteTitle, renameFolder),
+  dismissTitleMatch: (gameId: string, remoteTitle: string): Promise<void> =>
+    ipcRenderer.invoke('sync:dismissMatch', gameId, remoteTitle),
   resolveConflict: (gameId: string, choice: ConflictChoice): Promise<boolean> =>
     ipcRenderer.invoke('sync:resolve', gameId, choice),
 

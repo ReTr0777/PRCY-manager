@@ -1,14 +1,21 @@
 import { useEffect, useState } from 'react'
 import { api, formatDate } from '../api'
-import type { AppState, SaveConflict, SyncDevice, SyncServerInfo } from '../../../shared/types'
+import type {
+  AppState,
+  SaveConflict,
+  SyncDevice,
+  SyncServerInfo,
+  TitleSuggestion
+} from '../../../shared/types'
 
 interface Props {
   state: AppState
   onToast: (message: string) => void
   onConflicts: (conflicts: SaveConflict[]) => void
+  onMatches: (suggestions: TitleSuggestion[]) => void
 }
 
-export default function SyncSettings({ state, onToast, onConflicts }: Props): JSX.Element {
+export default function SyncSettings({ state, onToast, onConflicts, onMatches }: Props): JSX.Element {
   const [busy, setBusy] = useState<string | null>(null)
   const [progress, setProgress] = useState<string | null>(null)
   const [info, setInfo] = useState<SyncServerInfo | null>(null)
@@ -58,6 +65,7 @@ export default function SyncSettings({ state, onToast, onConflicts }: Props): JS
     if (result.coversDownloaded) parts.push(`${result.coversDownloaded} covers down`)
     onToast(`Sync finished — ${parts.length ? parts.join(', ') : 'already up to date'}`)
     if (result.conflicts.length > 0) onConflicts(result.conflicts)
+    if (result.suggestions.length > 0) onMatches(result.suggestions)
   }
 
   const submitSignIn = async (): Promise<void> => {

@@ -142,6 +142,17 @@ password and keeps a token of its own, so signing one device out leaves the rest
 alone. Sign-ups need an invite code the server owner sets, or the owner adds
 accounts with an admin token that cannot read anybody's library.
 
+Games are paired across devices by title, so the same game named slightly
+differently on two machines would sit as two entries and never share a save.
+After a sync, near misses are offered rather than applied: *Cave Diver Complete*
+here, *Cave Diver* on the desktop, 64% alike, and one of them has a save
+waiting. Accepting adopts the other device's name, and optionally renames the
+folder on disk so a later scan produces that name by itself — the executable,
+cover and any absolute save paths follow it, and the entry the old name left on
+the server is cleaned up on the next sync. Titles are compared after the same
+cleanup the scanner uses, so `Abyssus.v1.3.62055-OFME` matches *Abyssus*, while
+a differing number on the end keeps *Portal* and *Portal 2* apart.
+
 The server has a small web console at its own address: sign in with the admin
 token to see what it holds, add or remove accounts, and update the server in
 place. An update replaces only the server's own code — the new version is booted

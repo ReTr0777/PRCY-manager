@@ -6,6 +6,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { contentHash, packSlots, readHeader, unpackSlots } from './archive'
 import { expand } from './savepaths'
+import { prettifyTitle } from './scanner'
+import { renameGameFolder } from './storage'
 import { store } from './store'
 import type {
   ConflictChoice,
@@ -56,6 +58,67 @@ interface RemoteLibrary {
 export function gameKey(game: Game): string {
   const normalised = game.title.toLowerCase().replace(/[^a-z0-9]/g, '')
   return createHash('sha1').update(normalised).digest('hex').slice(0, 32)
+}
+
+// --- pairing games across devices --------------------------------------------
+
+/**
+ * Strips the noise a download carries before comparing: versions, release
+ * groups, store codes, platform tags. The scanner already knows how to do this,
+ * and a title typed by hand passes through it unchanged.
+ */
+const words = (title: string): string =>
+  prettifyTitle(title).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+
+/** Character pairs, the unit the similarity score is built from. */
+function bigrams(text: string): Set<string> {
+  const clean = text.replace(/\s+/g, '')
+  const out = new Set<string>()
+  for (let i = 0; i < clean.length - 1; i++) out.add(clean.slice(i, i + 2))
+  return out
+}
+
+/**
+ * The number a title ends with, as a sequel marker. "Portal 2" and "Portal"
+ * score as nearly the same string, so this is what keeps them apart.
+ */
+function sequelNumber(title: string): string | null {
+  const match = words(title).match(/\b(\d{1,2}|ii|iii|iv|v|vi|vii|viii|ix|x)$/)
+  return match ? match[1] : null
+}
+
+/**
+ * 0..1 on how likely two titles are the same game. Dice's coefficient over
+ * character pairs, which handles the real cases — extra version or group tags
+ * on one device, punctuation differences, a word dropped — without matching
+ * everything to everything.
+ */
+export function titleAffinity(a: string, b: string): number {
+  const x = words(a)
+  const y = words(b)
+  if (!x || !y) return 0
+  if (x === y) return 1
+
+  // A different number on the end almost always means a different game.
+  if (sequelNumber(x) !== sequelNumber(y)) return 0
+
+  const left = bigrams(x)
+  const right = bigrams(y)
+  if (left.size === 0 || right.size === 0) return 0
+  let shared = 0
+  for (const pair of left) if (right.has(pair)) shared++
+  return (2 * shared) / (left.size + right.size)
+}
+
+/** Below this, two titles are treated as unrelated and never suggested. */
+const SUGGEST_THRESHOLD = 0.6
+
+const ILLEGAL_IN_NAME = /[<>:"/\|?*]/g
+
+/** The other device's title as a folder name, or null if it cannot be one. */
+function asFolderName(title: string): string | null {
+  const clean = title.replace(ILLEGAL_IN_NAME, '').replace(/[. ]+$/, '').trim()
+  return clean.length > 0 && clean.length < 200 ? clean : null
 }
 
 /**
@@ -465,7 +528,8 @@ export async function syncNow(
     savesDownloaded: 0,
     coversUploaded: 0,
     coversDownloaded: 0,
-    conflicts: []
+    conflicts: [],
+    suggestions: []
   }
 
   try {
@@ -568,6 +632,36 @@ export async function syncNow(
       nextGames[key] = entry
     }
 
+    // Games another device knows under a slightly different name. Pairing is by
+    // title, so without a nudge these two entries sit side by side forever.
+    const localKeys = new Set(games.map((g) => gameKey(g)))
+    for (const game of games) {
+      if (remote.games[gameKey(game)]) continue
+      let best: { key: string; entry: RemoteGame; score: number } | null = null
+      for (const [key, entry] of Object.entries(remote.games)) {
+        if (localKeys.has(key)) continue
+        const score = titleAffinity(game.title, entry.title)
+        if (score >= SUGGEST_THRESHOLD && (!best || score > best.score)) best = { key, entry, score }
+      }
+      if (!best) continue
+      if (dismissedMatches.has(`${game.id}::${best.entry.title}`)) continue
+      result.suggestions.push({
+        gameId: game.id,
+        localTitle: game.title,
+        localFolder: game.folder,
+        remoteTitle: best.entry.title,
+        remoteDevice: best.entry.save?.deviceName ?? null,
+        similarity: Math.round(best.score * 100) / 100,
+        remoteHasSave: Boolean(best.entry.save),
+        folderRenameTo: asFolderName(best.entry.title)
+      })
+    }
+
+    // Entries a title match left behind: this device published them under its
+    // old name and nothing points at them now.
+    for (const key of retiredKeys) delete nextGames[key]
+    retiredKeys.clear()
+
     onProgress?.('metadata', 'Publishing…')
     const vault = store.settings.vaultHash
       ? {
@@ -592,6 +686,55 @@ export async function syncNow(
     store.save()
     return { ...result, ok: false, error: (err as Error).message }
   }
+}
+
+/**
+ * Keys this device published before a title match renamed the game. They are
+ * removed from the server on the next sync so the old entry does not linger.
+ */
+const retiredKeys = new Set<string>()
+
+/**
+ * Pairs the user has said are different games. Kept for the session only: a
+ * wrong "different" should not be permanent, and re-asking after a restart is
+ * cheaper than a setting nobody can find again.
+ */
+const dismissedMatches = new Set<string>()
+
+export function dismissTitleMatch(gameId: string, remoteTitle: string): void {
+  dismissedMatches.add(`${gameId}::${remoteTitle}`)
+}
+
+/**
+ * Adopts the other device's name for a game, so both sides pair from now on.
+ * Renaming the folder as well is optional: it makes a later rescan produce the
+ * same title by itself, rather than relying on the name stored here.
+ */
+export async function applyTitleMatch(
+  gameId: string,
+  remoteTitle: string,
+  renameFolder: boolean
+): Promise<{ ok: boolean; error?: string; folder?: string }> {
+  const game = store.findGame(gameId)
+  if (!game) return { ok: false, error: 'No such game.' }
+
+  const oldKey = gameKey(game)
+  let folder = game.folder
+  let id = gameId
+
+  if (renameFolder) {
+    const target = asFolderName(remoteTitle)
+    if (!target) return { ok: false, error: 'That name cannot be used as a folder name.' }
+    const renamed = await renameGameFolder(gameId, target)
+    if (!renamed.ok) return renamed
+    folder = renamed.folder as string
+    id = renamed.id as string
+  }
+
+  store.updateGame(id, { title: remoteTitle })
+  retiredKeys.add(oldKey)
+  store.save()
+  return { ok: true, folder }
 }
 
 /** Applies the user's decision for one conflicted game. */
