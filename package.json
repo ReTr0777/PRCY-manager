@@ -1,6 +1,6 @@
 {
   "name": "prcy-manager",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "A manager for games downloaded from itch.io and elsewhere",
   "main": "./out/main/index.js",
   "author": "irwan",

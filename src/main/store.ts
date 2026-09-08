@@ -48,6 +48,10 @@ class Store {
           // Added with sync; older libraries predate both fields.
           updatedAt: g.updatedAt ?? g.addedAt ?? 0,
           savePaths: g.savePaths ?? [],
+          // Art downloaded through "Find online" lives beside the library, so an
+          // older record pointing there is one the user chose deliberately.
+          coverChosen:
+            g.coverChosen ?? (g.coverPath ?? '').includes(`${path.sep}covers${path.sep}`),
           // Added with storage management; null simply means "not measured yet".
           sizeBytes: g.sizeBytes ?? null,
           sizeScannedAt: g.sizeScannedAt ?? null

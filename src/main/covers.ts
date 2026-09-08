@@ -186,6 +186,10 @@ export async function applyCover(gameId: string, candidate: CoverCandidate): Pro
 
   const previous = game.coverPath
   game.coverPath = file
+  // Applying art from the picker is a choice, and choices travel between
+  // devices; a picture the scanner found in a folder does not.
+  game.coverChosen = true
+  game.updatedAt = Date.now()
   store.save()
 
   // Only ever delete files this app downloaded, never art inside a game folder.

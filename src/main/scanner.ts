@@ -458,6 +458,7 @@ export async function scanAll(onProgress?: (msg: string) => void): Promise<ScanR
             exePath: info.exePath,
             exeCandidates: info.exeCandidates,
             coverPath: info.coverPath,
+            coverChosen: false,
             hidden: false,
             favorite: false,
             tags: [],

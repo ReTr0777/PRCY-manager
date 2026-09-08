@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { api } from './api'
+import { api, totalPlaytime } from './api'
 import Sidebar from './components/Sidebar'
 import GameCard from './components/GameCard'
 import GameDetail from './components/GameDetail'
@@ -90,7 +90,7 @@ export default function App(): JSX.Element {
         case 'recent':
           return g.lastPlayed !== null
         case 'unplayed':
-          return g.playtimeSeconds === 0
+          return totalPlaytime(g) === 0
         case 'missing':
           return g.missing
         case 'root':
@@ -114,7 +114,7 @@ export default function App(): JSX.Element {
           sorted.sort((a, b) => (b.lastPlayed ?? 0) - (a.lastPlayed ?? 0))
           break
         case 'playtime':
-          sorted.sort((a, b) => b.playtimeSeconds - a.playtimeSeconds)
+          sorted.sort((a, b) => totalPlaytime(b) - totalPlaytime(a))
           break
         case 'addedAt':
           sorted.sort((a, b) => b.addedAt - a.addedAt)

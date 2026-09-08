@@ -101,6 +101,10 @@ is dropped from the picker rather than shown broken, and applying falls back
 portrait → thumbnail → header. Chosen art is downloaded into `covers/` beside
 your library file, so it survives the game folder being moved or re-extracted.
 
+Art you picked is remembered as picked, which is what decides sync: a cover
+chosen on one device replaces one another device merely found lying in the game
+folder, rather than whichever machine synced last winning.
+
 Settings has **Fetch missing covers** for a whole-library pass. It only applies
 art when the result's title is a close match (0.72 similarity or better) and
 skips the rest rather than guessing, and it paces itself at roughly one request a
@@ -202,7 +206,9 @@ limit of what generic tooling can tell you about progress, and in practice the
 newest slot file plus a bigger save is enough. The other version stays on the
 server *and* in a local `save-backups` folder, so nothing is destroyed by a
 wrong answer. Playtime is tracked per device and
-summed, so two machines never overwrite each other's hours, and everything else
+summed everywhere it is shown — the card, the detail panel, the sort and the
+"never played" filter all count every machine, with the detail panel naming how
+much came from elsewhere — so two devices never overwrite each other's hours, and everything else
 merges by whichever device was edited last.
 
 **Updating the app.** The desktop app updates itself from the same server that

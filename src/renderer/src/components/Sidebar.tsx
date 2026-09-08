@@ -1,3 +1,4 @@
+import { totalPlaytime } from '../api'
 import Logo from './Logo'
 import type { AppState } from '../../../shared/types'
 import type { View } from '../App'
@@ -23,7 +24,7 @@ export default function Sidebar(props: Props): JSX.Element {
     all: visible.length,
     favorites: visible.filter((g) => g.favorite).length,
     recent: visible.filter((g) => g.lastPlayed !== null).length,
-    unplayed: visible.filter((g) => g.playtimeSeconds === 0).length,
+    unplayed: visible.filter((g) => totalPlaytime(g) === 0).length,
     missing: visible.filter((g) => g.missing).length,
     hidden: state.games.filter((g) => g.hidden).length
   }

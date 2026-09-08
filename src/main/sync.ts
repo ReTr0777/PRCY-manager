@@ -43,6 +43,8 @@ interface RemoteGame {
   playtime: Record<string, number>
   lastPlayed: number | null
   coverBlob: string | null
+  /** Whether that art was chosen by hand or merely found by a scan. */
+  coverChosen?: boolean
   savePaths: string[]
   updatedAt: number
   save: { versionId: string; hash: string; capturedAt: number; deviceName: string } | null
@@ -460,6 +462,7 @@ function toRemote(game: Game, previous: RemoteGame | undefined, deviceId: string
     playtime,
     lastPlayed: game.lastPlayed,
     coverBlob: previous?.coverBlob ?? null,
+    coverChosen: game.coverChosen || (previous?.coverChosen ?? false),
     savePaths: game.savePaths.filter(isPortable),
     updatedAt: game.updatedAt,
     save: previous?.save ?? null
@@ -649,8 +652,15 @@ export async function syncNow(
       if (remoteGame && mergeInto(game, remoteGame, deviceId)) result.metadataChanged++
 
       onProgress?.('covers', game.title)
+      // Art you picked beats art a scan happened to find, whichever machine it
+      // is on. Without that rule, adding a game on a second device would
+      // overwrite the cover you chose on the first with whatever image was
+      // lying in the folder.
       let coverBlob = remoteGame?.coverBlob ?? null
-      if (game.coverPath) {
+      const chosenHere = Boolean(game.coverPath) && game.coverChosen
+      const chosenThere = Boolean(coverBlob) && (remoteGame?.coverChosen ?? true)
+
+      if (chosenHere && !(chosenThere && (remoteGame?.updatedAt ?? 0) > game.updatedAt)) {
         const pushed = await pushCover(game)
         if (pushed && pushed !== coverBlob) {
           coverBlob = pushed
@@ -658,11 +668,21 @@ export async function syncNow(
         }
       } else if (coverBlob) {
         if (await pullCover(game, coverBlob)) result.coversDownloaded++
+        // What came down is now the shared picture, not a local accident.
+        game.coverChosen = chosenThere
+      } else if (game.coverPath) {
+        // Nothing on the server yet: an automatic cover beats no cover.
+        const pushed = await pushCover(game)
+        if (pushed) {
+          coverBlob = pushed
+          result.coversUploaded++
+        }
       }
 
       onProgress?.('saves', game.title)
       const entry = toRemote(game, remoteGame, deviceId)
       entry.coverBlob = coverBlob
+      entry.coverChosen = chosenHere || chosenThere
       // The merge may have taken remote values; publish what we now hold.
       entry.title = game.title
       entry.tags = game.tags

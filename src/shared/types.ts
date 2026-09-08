@@ -29,6 +29,8 @@ export interface Game {
   exeCandidates: ExeCandidate[]
   /** Absolute path to a cover image on disk, or null for the generated tile. */
   coverPath: string | null
+  /** True when you chose this art, false when a scan merely found a file. */
+  coverChosen: boolean
   hidden: boolean
   favorite: boolean
   tags: string[]

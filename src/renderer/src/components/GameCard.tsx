@@ -1,4 +1,4 @@
-import { api, formatPlaytime } from '../api'
+import { api, formatPlaytime, totalPlaytime } from '../api'
 import type { Game } from '../../../shared/types'
 
 interface Props {
@@ -57,7 +57,7 @@ export default function GameCard({ game, running, selected, onSelect, onLaunch }
         <div className="card-title truncate" title={`${game.title}\n${game.folder}`}>
           {game.title}
         </div>
-        <div className="card-meta">{formatPlaytime(game.playtimeSeconds)}</div>
+        <div className="card-meta">{formatPlaytime(totalPlaytime(game))}</div>
       </div>
     </div>
   )

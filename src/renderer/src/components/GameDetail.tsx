@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, formatDate, formatPlaytime, formatSize } from '../api'
+import { api, formatDate, formatPlaytime, formatSize, remotePlaytime, totalPlaytime } from '../api'
 import CoverSearchDialog from './CoverSearchDialog'
 import SaveLocations from './SaveLocations'
 import SaveHistory from './SaveHistory'
@@ -76,7 +76,15 @@ export default function GameDetail(props: Props): JSX.Element {
 
       <dl className="facts">
         <dt>Playtime</dt>
-        <dd>{formatPlaytime(game.playtimeSeconds)}</dd>
+        <dd>
+          {formatPlaytime(totalPlaytime(game))}
+          {remotePlaytime(game) > 0 && (
+            <span className="dim small-text">
+              {' '}
+              · {formatPlaytime(remotePlaytime(game))} on your other devices
+            </span>
+          )}
+        </dd>
         <dt>Last played</dt>
         <dd>{formatDate(game.lastPlayed)}</dd>
         <dt>Added</dt>

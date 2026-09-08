@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { api, formatDate, formatPlaytime, formatSize } from '../api'
+import { api, formatDate, formatPlaytime, formatSize, totalPlaytime } from '../api'
 import type { AppState, Game, StorageReport } from '../../../shared/types'
 
 interface Props {
@@ -38,7 +38,7 @@ export default function StorageDialog({ state, onClose, onToast }: Props): JSX.E
   // Biggest first: the whole point of the screen is deciding what to remove.
   const ranked = useMemo(() => {
     const list = state.games.filter((g) => !g.missing && typeof g.sizeBytes === 'number')
-    const filtered = filter === 'unplayed' ? list.filter((g) => g.playtimeSeconds === 0) : list
+    const filtered = filter === 'unplayed' ? list.filter((g) => totalPlaytime(g) === 0) : list
     return [...filtered].sort((a, b) => (b.sizeBytes ?? 0) - (a.sizeBytes ?? 0))
   }, [state.games, filter])
 
@@ -156,8 +156,8 @@ export default function StorageDialog({ state, onClose, onToast }: Props): JSX.E
                         {game.title}
                       </span>
                       <span className="dim small-text">
-                        {game.playtimeSeconds > 0
-                          ? formatPlaytime(game.playtimeSeconds)
+                        {totalPlaytime(game) > 0
+                          ? formatPlaytime(totalPlaytime(game))
                           : 'never played'}
                         {game.lastPlayed ? ` · ${formatDate(game.lastPlayed)}` : ''}
                       </span>

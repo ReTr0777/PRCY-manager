@@ -124,6 +124,7 @@ export function registerIpc(): void {
         exePath: info.exePath,
         exeCandidates: info.exeCandidates,
         coverPath: info.coverPath,
+        coverChosen: false,
         hidden: false,
         favorite: false,
         tags: [],
@@ -227,7 +228,7 @@ export function registerIpc(): void {
       filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }]
     })
     if (result.canceled) return null
-    store.updateGame(id, { coverPath: result.filePaths[0] })
+    store.updateGame(id, { coverPath: result.filePaths[0], coverChosen: true })
     broadcast()
     return result.filePaths[0]
   })
