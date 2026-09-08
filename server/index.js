@@ -23,7 +23,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 /** Bumped by hand when the server changes; shown in the web UI. */
-const VERSION = '0.6.0'
+const VERSION = '0.6.1'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')
@@ -697,7 +697,13 @@ async function smokeTest(entry) {
       PRCY_PORT: String(port),
       PRCY_DATA: scratch,
       PRCY_ADMIN_TOKEN: crypto.randomBytes(16).toString('hex'),
-      PRCY_INVITE_CODE: ''
+      PRCY_INVITE_CODE: '',
+      // Every listening port has to move, not just the main one: the candidate
+      // runs beside the server it is replacing, and inheriting a port that is
+      // already bound would fail it for a reason that has nothing to do with
+      // the build.
+      PRCY_PUBLIC_PORT: '',
+      PRCY_PUBLIC_URL: ''
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
