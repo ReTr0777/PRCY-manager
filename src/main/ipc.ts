@@ -7,6 +7,9 @@ import { describe, detectSaveLocations, tokenise } from './savepaths'
 import {
   applyTitleMatch,
   changeServerPassword,
+  listSaveVersions,
+  restoreSaveVersion,
+  syncBeforeLaunch,
   dismissTitleMatch,
   listDevices,
   resolveConflict,
@@ -162,9 +165,18 @@ export function registerIpc(): void {
 
   ipcMain.handle('game:launch', async (_e, id: string) => {
     if (!reachable(id)) return { ok: false, error: 'Game is locked.' }
+
+    // Fetch the newest save before starting, so a session begun on one device
+    // continues from where the other left off rather than colliding with it.
+    const prep = await syncBeforeLaunch(id)
+    if (prep.conflict) {
+      broadcast()
+      return { ok: false, conflict: prep.conflict }
+    }
+
     const result = await launcher.launch(id)
     broadcast()
-    return result
+    return { ...result, pulledFrom: prep.pulledFrom }
   })
 
   ipcMain.handle('game:markStopped', (_e, id: string) => {
@@ -271,6 +283,20 @@ export function registerIpc(): void {
   })
 
   ipcMain.handle('saves:describe', (_e, token: string) => describe(token))
+
+  ipcMain.handle('saves:versions', (_e, id: string) =>
+    reachable(id) ? listSaveVersions(id) : []
+  )
+
+  ipcMain.handle('saves:restore', async (_e, id: string, versionId: string) => {
+    if (!reachable(id)) return { ok: false, error: 'Game is locked.' }
+    if (launcher.isRunning(id)) {
+      return { ok: false, error: 'Close the game first — restoring over a running save loses it.' }
+    }
+    const result = await restoreSaveVersion(id, versionId)
+    broadcast()
+    return result
+  })
 
   // --- sync ----------------------------------------------------------------
 

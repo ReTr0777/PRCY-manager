@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, formatDate, formatPlaytime, formatSize } from '../api'
 import CoverSearchDialog from './CoverSearchDialog'
 import SaveLocations from './SaveLocations'
+import SaveHistory from './SaveHistory'
 import type { Game, VaultState } from '../../../shared/types'
 
 interface Props {
@@ -172,6 +173,8 @@ export default function GameDetail(props: Props): JSX.Element {
       </div>
 
       <SaveLocations game={game} />
+
+      <SaveHistory game={game} onToast={props.onToast} />
 
       <div className="field">
         <label>Folder</label>

@@ -971,3 +971,27 @@ select:focus {
 .update-card p {
   margin: 6px 0 0;
 }
+
+/* --- save history -------------------------------------------------------- */
+
+.version-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.version-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 2px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.version-list li.current {
+  color: var(--ok);
+}

@@ -136,7 +136,18 @@ export default function App(): JSX.Element {
 
   const launch = useCallback(async (id: string) => {
     const result = await api.launch(id)
-    if (!result.ok) setToast(result.error ?? 'Could not launch that game.')
+    // Both devices moved since the last sync: choose before playing, or the
+    // act of playing decides it for you.
+    if (result.conflict) {
+      setConflicts([result.conflict])
+      setToast('That save differs from the one on your other device — pick one first.')
+      return
+    }
+    if (!result.ok) {
+      setToast(result.error ?? 'Could not launch that game.')
+      return
+    }
+    if (result.pulledFrom) setToast(`Pulled the newest save from ${result.pulledFrom}.`)
   }, [])
 
   const openHidden = useCallback(() => {

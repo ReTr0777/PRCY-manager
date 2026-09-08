@@ -205,6 +205,29 @@ export interface SyncDevice {
   current: boolean
 }
 
+/** One stored version of a game's saves, as kept on the server. */
+export interface SaveVersion {
+  versionId: string
+  hash: string
+  deviceId: string
+  deviceName: string
+  /** Compressed size of the archive. */
+  size: number
+  capturedAt: number
+  /** True for the version this device currently holds. */
+  current: boolean
+}
+
+/** What happened when a game was prepared for launch. */
+export interface LaunchPrep {
+  ok: boolean
+  error?: string
+  /** Set when a newer save was pulled down before starting. */
+  pulledFrom?: string
+  /** Set when both sides changed and the user has to choose first. */
+  conflict?: SaveConflict
+}
+
 /** How the user resolved one conflict. */
 export type ConflictChoice = 'local' | 'remote' | 'skip'
 

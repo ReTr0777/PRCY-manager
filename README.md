@@ -178,6 +178,21 @@ never point another at a path that means something different there.
 A save set travels as a single gzipped archive whose entries are relative to
 their location, which is what makes it portable between machines with different
 usernames. Sync compares content hashes, so unchanged saves are not re-uploaded.
+Pressing **Play** fetches the newest save first. Syncing only afterwards is what
+creates most conflicts — you finish on the laptop, forget to sync, and the
+desktop starts from a stale save — so the pull happens before the game does. If
+the server is slow or away it gives up after a few seconds and launches anyway;
+being unable to check is not a reason to stop you playing. When both sides have
+moved it does not start the game at all, and asks instead, because playing would
+make the choice for you.
+
+**Save history.** The server keeps the last twenty versions of each game's
+saves, and a game's detail panel lists them: when, from which device, how big,
+and which one this device is holding. **Restore** puts an older one back —
+packing what is on disk into local backups first, so that is undoable too. Those
+versions were always kept; this makes them useful for the ordinary case of a save
+gone wrong, rather than only during a conflict.
+
 If both devices played since the last sync, you are asked which version to keep.
 The prompt is built to be answerable: it says which side was written more
 recently and by how much, gives the file count and total size of each, and lists

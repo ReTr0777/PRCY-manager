@@ -7,7 +7,9 @@ import type {
   CoverFetchReport,
   Game,
   RunningGame,
+  SaveConflict,
   SaveLocation,
+  SaveVersion,
   ScanReport,
   Settings,
   StorageReport,
@@ -33,7 +35,8 @@ const api = {
   updateGame: (id: string, patch: Partial<Game>): Promise<Game | null> =>
     ipcRenderer.invoke('game:update', id, patch),
   removeGame: (id: string): Promise<void> => ipcRenderer.invoke('game:remove', id),
-  launch: (id: string): Promise<Result> => ipcRenderer.invoke('game:launch', id),
+  launch: (id: string): Promise<Result & { conflict?: SaveConflict; pulledFrom?: string }> =>
+    ipcRenderer.invoke('game:launch', id),
   markStopped: (id: string): Promise<void> => ipcRenderer.invoke('game:markStopped', id),
   openFolder: (id: string): Promise<void> => ipcRenderer.invoke('game:openFolder', id),
   rescanGame: (id: string): Promise<Game | null> => ipcRenderer.invoke('game:rescan', id),
@@ -52,6 +55,9 @@ const api = {
   setSavePaths: (id: string, paths: string[]): Promise<string[] | null> =>
     ipcRenderer.invoke('saves:setPaths', id, paths),
   describePath: (token: string): Promise<string> => ipcRenderer.invoke('saves:describe', token),
+  saveVersions: (id: string): Promise<SaveVersion[]> => ipcRenderer.invoke('saves:versions', id),
+  restoreSaveVersion: (id: string, versionId: string): Promise<Result & { backup?: string }> =>
+    ipcRenderer.invoke('saves:restore', id, versionId),
 
   testSync: (): Promise<Result> => ipcRenderer.invoke('sync:test'),
   syncServerInfo: (url: string): Promise<SyncServerInfo> =>

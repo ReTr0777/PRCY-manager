@@ -17,8 +17,10 @@ import type {
   SaveSide,
   SyncAccount,
   SyncDevice,
+  LaunchPrep,
   SyncResult,
-  SyncServerInfo
+  SyncServerInfo,
+  SaveVersion
 } from '../shared/types'
 
 /**
@@ -518,6 +520,14 @@ function mergeInto(game: Game, remote: RemoteGame, deviceId: string): boolean {
 
 // --- the sync run ------------------------------------------------------------
 
+/** Gives a slow or absent server a deadline, rather than hanging the caller. */
+function withTimeout<T>(work: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new SyncError('timed out')), ms))
+  ])
+}
+
 /** Conflicts wait here between being reported and being resolved. */
 const pendingConflicts = new Map<
   string,
@@ -844,12 +854,109 @@ export async function resolveConflict(gameId: string, choice: ConflictChoice): P
   return true
 }
 
+/**
+ * Fetches the newest save before a game starts.
+ *
+ * Syncing only after play is what creates most conflicts: you finish on the
+ * laptop, forget to sync, and the desktop starts from a stale save. Pulling
+ * first turns that into a non-event. When both sides have moved it stops and
+ * asks instead, because starting the game would make the choice for you.
+ */
+export async function syncBeforeLaunch(gameId: string): Promise<LaunchPrep> {
+  const game = store.findGame(gameId)
+  if (!game) return { ok: false, error: 'No such game.' }
+  const { syncUrl, syncToken, syncOnPlay, deviceId } = store.settings
+  if (!syncUrl || !syncToken || !syncOnPlay || game.savePaths.length === 0) return { ok: true }
+
+  try {
+    // A server that is slow or away must never stop you playing.
+    const fetched = await withTimeout(request('GET', '/v1/library'), 12_000)
+    if (fetched.status !== 200) return { ok: true }
+    const remote: RemoteLibrary = fetched.json
+    const key = gameKey(game)
+    const remoteGame = remote.games[key]
+    const remoteSave = remoteGame?.save ?? null
+    if (!remoteSave) return { ok: true }
+
+    const known = game.sync ?? { saveHash: null, versionId: null, syncedAt: null }
+    if (remoteSave.hash === known.saveHash) return { ok: true }
+
+    const local = await captureSaves(game)
+    const localChanged = local !== null && local.hash !== known.saveHash
+
+    if (localChanged && local) {
+      // Both moved. Ask rather than pick, and let the merge happen there.
+      const archive = await withTimeout(downloadSave(key, remoteSave.versionId), 60_000).catch(
+        () => null
+      )
+      pendingConflicts.set(game.id, {
+        game,
+        local: local.archive,
+        remote: remoteGame as RemoteGame,
+        remoteArchive: archive
+      })
+      return {
+        ok: true,
+        conflict: describeConflict(game, key, local.archive, archive, remoteSave)
+      }
+    }
+
+    const archive = await withTimeout(downloadSave(key, remoteSave.versionId), 120_000)
+    await restoreSave(game, archive, remoteSave.hash, remoteSave.versionId)
+    if (remoteGame) mergeInto(game, remoteGame, deviceId)
+    store.save()
+    return { ok: true, pulledFrom: remoteSave.deviceName }
+  } catch (err) {
+    // Not being able to check is not a reason to refuse to launch.
+    return { ok: true, error: (err as Error).message }
+  }
+}
+
 /** Called after a play session so the save travels without being asked. */
 export async function syncGameSaves(gameId: string): Promise<void> {
   const game = store.findGame(gameId)
   if (!game || !store.settings.syncUrl || !store.settings.syncOnPlay) return
   if (game.savePaths.length === 0) return
   await syncNow()
+}
+
+/** Every version of a game's saves the server still holds, newest first. */
+export async function listSaveVersions(gameId: string): Promise<SaveVersion[]> {
+  const game = store.findGame(gameId)
+  if (!game || !store.settings.syncToken) return []
+  const res = await request('GET', `/v1/saves/${gameKey(game)}`)
+  if (res.status !== 200) return []
+  const current = game.sync?.versionId ?? null
+  return ((res.json.versions ?? []) as SaveVersion[]).map((v) => ({
+    ...v,
+    current: v.versionId === current
+  }))
+}
+
+/**
+ * Puts an older save back. What is on disk now is packed into the local backup
+ * folder first, so this is undoable even though it overwrites.
+ */
+export async function restoreSaveVersion(
+  gameId: string,
+  versionId: string
+): Promise<{ ok: boolean; error?: string; backup?: string }> {
+  const game = store.findGame(gameId)
+  if (!game) return { ok: false, error: 'No such game.' }
+  if (game.savePaths.length === 0) return { ok: false, error: 'This game has no save location set.' }
+
+  try {
+    const archive = await downloadSave(gameKey(game), versionId)
+    const current = await captureSaves(game)
+    const backup = current ? await backupLocal(game, current.archive) : undefined
+    await unpackSlots(archive, slotDirs(game))
+    // Restoring makes this device hold that version, so record it as such.
+    game.sync = { saveHash: contentHash(archive), versionId, syncedAt: Date.now() }
+    store.save()
+    return { ok: true, backup }
+  } catch (err) {
+    return { ok: false, error: (err as Error).message }
+  }
 }
 
 export function ensureDeviceIdentity(): void {
