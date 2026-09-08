@@ -485,7 +485,12 @@
       }
 
       $('signin').onclick = signIn
-      $('token').onkeydown = (e) => e.key === 'Enter' && signIn()
+      // Braces matter here: an onkeydown handler that returns false cancels the
+      // keystroke, and `cond && fn()` returns false for every key but Enter —
+      // which made the field impossible to type into.
+      $('token').onkeydown = (e) => {
+        if (e.key === 'Enter') signIn()
+      }
       $('signout').onclick = async () => {
         await call('DELETE', '/v1/admin/session')
         showLogin()
