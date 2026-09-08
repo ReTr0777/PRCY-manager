@@ -888,3 +888,68 @@ select:focus {
   grid-column: span 2;
   text-align: right;
 }
+
+/* --- save conflicts ------------------------------------------------------ */
+
+.verdict {
+  margin: 4px 0 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent);
+}
+
+.conflict-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.conflict-grid .conflict-side {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* The side that was written last, which is usually the one you want. */
+.conflict-grid .conflict-side.newer {
+  border-color: var(--accent);
+}
+
+.conflict-grid .conflict-side button {
+  margin-top: 6px;
+}
+
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+  table-layout: fixed;
+}
+
+.diff-table th,
+.diff-table td {
+  text-align: left;
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.diff-table th {
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.diff-table td.num,
+.diff-table th.num {
+  text-align: right;
+  white-space: nowrap;
+  width: 34%;
+}
+
+.diff-table td.newer-cell {
+  color: var(--ok);
+}

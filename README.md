@@ -178,9 +178,15 @@ never point another at a path that means something different there.
 A save set travels as a single gzipped archive whose entries are relative to
 their location, which is what makes it portable between machines with different
 usernames. Sync compares content hashes, so unchanged saves are not re-uploaded.
-If both devices played since the last sync, you are asked which version to keep;
-the other one stays on the server *and* in a local `save-backups` folder, so
-nothing is destroyed by a wrong answer. Playtime is tracked per device and
+If both devices played since the last sync, you are asked which version to keep.
+The prompt is built to be answerable: it says which side was written more
+recently and by how much, gives the file count and total size of each, and lists
+the files themselves newest first — size and modification time side by side, with
+"missing" where one device has a file the other does not. That is the honest
+limit of what generic tooling can tell you about progress, and in practice the
+newest slot file plus a bigger save is enough. The other version stays on the
+server *and* in a local `save-backups` folder, so nothing is destroyed by a
+wrong answer. Playtime is tracked per device and
 summed, so two machines never overwrite each other's hours, and everything else
 merges by whichever device was edited last.
 

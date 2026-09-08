@@ -12,6 +12,9 @@ import { store } from './store'
 import type {
   ConflictChoice,
   Game,
+  SaveConflict,
+  SaveFileDiff,
+  SaveSide,
   SyncAccount,
   SyncDevice,
   SyncResult,
@@ -516,7 +519,89 @@ function mergeInto(game: Game, remote: RemoteGame, deviceId: string): boolean {
 // --- the sync run ------------------------------------------------------------
 
 /** Conflicts wait here between being reported and being resolved. */
-const pendingConflicts = new Map<string, { game: Game; local: Buffer; remote: RemoteGame }>()
+const pendingConflicts = new Map<
+  string,
+  { game: Game; local: Buffer; remote: RemoteGame; remoteArchive: Buffer | null }
+>()
+
+/** Slot 0 of two is "slot 1"; a single slot needs no label at all. */
+function readablePath(entryPath: string, slotCount: number): string {
+  const slash = entryPath.indexOf('/')
+  const slot = Number(entryPath.slice(0, slash))
+  const rest = entryPath.slice(slash + 1)
+  return slotCount > 1 ? `slot ${slot + 1} · ${rest}` : rest
+}
+
+function side(
+  archive: Buffer | null,
+  deviceName: string,
+  versionId?: string
+): SaveSide {
+  if (!archive) {
+    return { capturedAt: 0, newestFileAt: 0, fileCount: 0, size: 0, deviceName, versionId }
+  }
+  const header = readHeader(archive)
+  return {
+    capturedAt: header.createdAt,
+    newestFileAt: header.entries.reduce((newest, e) => Math.max(newest, e.mtime), 0),
+    fileCount: header.entries.length,
+    size: header.entries.reduce((total, e) => total + e.size, 0),
+    deviceName,
+    versionId
+  }
+}
+
+/** How many rows the dialog gets; the rest are counted, not listed. */
+const DIFF_LIMIT = 12
+
+/**
+ * Lines up the two save sets file by file so the choice can be made on
+ * evidence — which side has the newer file, the bigger file, or a file the
+ * other does not have at all.
+ */
+function describeConflict(
+  game: Game,
+  key: string,
+  localArchive: Buffer,
+  remoteArchive: Buffer | null,
+  remoteSave: { versionId: string; capturedAt: number; deviceName: string }
+): SaveConflict {
+  const localHeader = readHeader(localArchive)
+  const remoteHeader = remoteArchive ? readHeader(remoteArchive) : null
+  const slotCount = Math.max(localHeader.slots.length, remoteHeader?.slots.length ?? 0)
+
+  const merged = new Map<string, SaveFileDiff>()
+  for (const entry of localHeader.entries) {
+    merged.set(entry.path, {
+      path: readablePath(entry.path, slotCount),
+      local: { size: entry.size, mtime: entry.mtime },
+      remote: null
+    })
+  }
+  for (const entry of remoteHeader?.entries ?? []) {
+    const existing = merged.get(entry.path)
+    const remote = { size: entry.size, mtime: entry.mtime }
+    if (existing) existing.remote = remote
+    else merged.set(entry.path, { path: readablePath(entry.path, slotCount), local: null, remote })
+  }
+
+  // Newest first: the file you touched last is the one you want to see.
+  const files = [...merged.values()].sort(
+    (a, b) =>
+      Math.max(b.local?.mtime ?? 0, b.remote?.mtime ?? 0) -
+      Math.max(a.local?.mtime ?? 0, a.remote?.mtime ?? 0)
+  )
+
+  return {
+    gameId: game.id,
+    gameKey: key,
+    title: game.title,
+    local: side(localArchive, store.settings.deviceName || 'this device'),
+    remote: side(remoteArchive, remoteSave.deviceName, remoteSave.versionId),
+    files: files.slice(0, DIFF_LIMIT),
+    moreFiles: Math.max(0, files.length - DIFF_LIMIT)
+  }
+}
 
 export async function syncNow(
   onProgress?: (phase: string, message: string) => void
@@ -586,24 +671,24 @@ export async function syncNow(
 
       if (localChanged && remoteChanged && local && remoteSave) {
         // Both sides moved since the last agreement: only the user can choose.
-        const header = readHeader(local.archive)
-        pendingConflicts.set(game.id, { game, local: local.archive, remote: entry })
-        result.conflicts.push({
-          gameId: game.id,
-          gameKey: key,
-          title: game.title,
-          local: {
-            capturedAt: header.createdAt,
-            fileCount: header.entries.length,
-            size: local.archive.length
-          },
-          remote: {
-            versionId: remoteSave.versionId,
-            capturedAt: remoteSave.capturedAt,
-            deviceName: remoteSave.deviceName,
-            size: 0
-          }
+        // Fetching the other archive now costs what taking it would cost
+        // anyway, and it is the only way to say which save is further along.
+        onProgress?.('saves', `${game.title} — comparing saves`)
+        let remoteArchive: Buffer | null = null
+        try {
+          remoteArchive = await downloadSave(key, remoteSave.versionId)
+        } catch {
+          // Still offer the choice; it just has less to go on.
+        }
+        pendingConflicts.set(game.id, {
+          game,
+          local: local.archive,
+          remote: entry,
+          remoteArchive
         })
+        result.conflicts.push(
+          describeConflict(game, key, local.archive, remoteArchive, remoteSave)
+        )
         entry.save = remoteSave
       } else if (localChanged && local) {
         const versionId = await uploadSave(game, local.archive, Date.now(), (sent, total) =>
@@ -751,7 +836,8 @@ export async function resolveConflict(gameId: string, choice: ConflictChoice): P
     const versionId = await uploadSave(game, local, Date.now())
     game.sync = { saveHash: hash, versionId, syncedAt: Date.now() }
   } else if (remote.save) {
-    const archive = await downloadSave(remote.key, remote.save.versionId)
+    // Already fetched while describing the conflict, in the usual case.
+    const archive = pending.remoteArchive ?? (await downloadSave(remote.key, remote.save.versionId))
     await restoreSave(game, archive, remote.save.hash, remote.save.versionId)
   }
   store.save()

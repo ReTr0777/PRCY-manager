@@ -132,13 +132,32 @@ export interface SaveConflict {
   gameId: string
   gameKey: string
   title: string
-  local: { capturedAt: number; fileCount: number; size: number }
-  remote: {
-    versionId: string
-    capturedAt: number
-    deviceName: string
-    size: number
-  }
+  local: SaveSide
+  remote: SaveSide
+  /** Per-file comparison, newest first and capped. */
+  files: SaveFileDiff[]
+  /** Files beyond the ones listed. */
+  moreFiles: number
+}
+
+/** One side of a save conflict, described well enough to choose between them. */
+export interface SaveSide {
+  /** When the archive was assembled. */
+  capturedAt: number
+  /** Newest modification time among the files — how recent the progress is. */
+  newestFileAt: number
+  fileCount: number
+  /** Total bytes of the files themselves, not the compressed archive. */
+  size: number
+  deviceName: string
+  versionId?: string
+}
+
+export interface SaveFileDiff {
+  /** Path within the save location, e.g. "slot 1 · profile/save1.dat". */
+  path: string
+  local: { size: number; mtime: number } | null
+  remote: { size: number; mtime: number } | null
 }
 
 /** What a sync server says about itself before you sign in. */
