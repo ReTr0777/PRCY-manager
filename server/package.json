@@ -1,0 +1,14 @@
+{
+  "name": "prcy-sync-server",
+  "version": "0.1.0",
+  "description": "Self-hosted sync server for PRCY Manager",
+  "type": "module",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

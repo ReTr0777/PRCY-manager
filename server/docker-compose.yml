@@ -1,0 +1,24 @@
+services:
+  prcy-sync:
+    build: .
+    image: prcy-sync:latest
+    container_name: prcy-sync
+    restart: unless-stopped
+    ports:
+      - '8787:8787'
+    environment:
+      # Generate each with:
+      #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+      #
+      # Manages accounts. Never put this in the app — it is yours alone.
+      PRCY_ADMIN_TOKEN: ${PRCY_ADMIN_TOKEN:?set PRCY_ADMIN_TOKEN in .env}
+      # Anyone with this code can create an account. Leave it out to close
+      # sign-ups and add people yourself with the admin token.
+      PRCY_INVITE_CODE: ${PRCY_INVITE_CODE:-}
+      # Largest body accepted in one request, in MB. Keep it under any proxy's
+      # limit — Cloudflare's free and Pro plans cut off at 100 MB. Bigger
+      # uploads are split into chunks by the app automatically.
+      PRCY_CHUNK_MB: ${PRCY_CHUNK_MB:-8}
+    volumes:
+      # On Unraid this is usually /mnt/user/appdata/prcy-sync
+      - ./data:/data

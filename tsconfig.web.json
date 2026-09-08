@@ -1,0 +1,16 @@
+{
+  "include": ["src/renderer/**/*", "src/shared/**/*", "src/preload/index.ts"],
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": { "@shared/*": ["src/shared/*"] }
+  }
+}
