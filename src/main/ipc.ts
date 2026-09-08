@@ -8,6 +8,7 @@ import {
   listDevices,
   resolveConflict,
   revokeDevice,
+  normaliseServerUrl,
   serverInfo,
   signIn,
   signOut,
@@ -377,6 +378,8 @@ export function registerIpc(): void {
   ipcMain.handle('settings:update', (_e, patch: Partial<Settings>) => {
     // The vault fields are owned by the vault module, never by the UI.
     const { vaultHash: _hash, vaultSalt: _salt, ...safe } = patch
+    // "tower.local:8787" is a perfectly reasonable thing to type.
+    if (typeof safe.syncUrl === 'string') safe.syncUrl = normaliseServerUrl(safe.syncUrl)
     const settings = store.updateSettings(safe)
     broadcast()
     return settings

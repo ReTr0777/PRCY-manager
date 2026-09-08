@@ -167,9 +167,27 @@ async function bodyLimit(): Promise<number> {
 
 // --- accounts ----------------------------------------------------------------
 
+/**
+ * Makes what someone types into something fetch() accepts. An address copied
+ * from a VPN client or a router page has no scheme, and "no scheme" is not a
+ * mistake worth making the user fix by hand.
+ */
+export function normaliseServerUrl(input: string): string | null {
+  const trimmed = input.trim().replace(/\/+$/, '')
+  if (!trimmed) return null
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`
+  try {
+    return new URL(withScheme).origin
+  } catch {
+    // Give it back unchanged rather than dropping what they typed; the next
+    // request will explain what is wrong with it.
+    return withScheme
+  }
+}
+
 export async function serverInfo(url: string): Promise<SyncServerInfo> {
   try {
-    const response = await fetch(`${url.replace(/\/+$/, '')}/health`)
+    const response = await fetch(`${normaliseServerUrl(url)}/health`)
     const json = (await response.json()) as Record<string, unknown>
     if (json?.service !== 'prcy-sync') return { ok: false, error: 'That is not a PRCY sync server.' }
     return {
