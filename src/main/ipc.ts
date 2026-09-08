@@ -1,6 +1,7 @@
 import { BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import fs from 'node:fs'
 import path from 'node:path'
+import { checkForUpdate, downloadUpdate, installUpdate } from './appupdate'
 import { applyCover, fetchMissingCovers, searchCovers } from './covers'
 import { describe, detectSaveLocations, tokenise } from './savepaths'
 import {
@@ -328,6 +329,18 @@ export function registerIpc(): void {
     broadcast()
     return done
   })
+
+  // --- updating the app -----------------------------------------------------
+
+  ipcMain.handle('app:checkUpdate', () => checkForUpdate())
+
+  ipcMain.handle('app:downloadUpdate', async (event, version: string) => {
+    return downloadUpdate(version, (received, total) =>
+      event.sender.send('app:updateProgress', { received, total })
+    )
+  })
+
+  ipcMain.handle('app:installUpdate', (_e, file: string) => installUpdate(file))
 
   // --- storage --------------------------------------------------------------
 

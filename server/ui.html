@@ -218,6 +218,10 @@
           ),
           stat('Upload chunk', size(json.chunkBytes)),
           stat(
+            'Desktop build',
+            json.app ? `v${json.app.version} · ${size(json.app.size)}` : 'none published'
+          ),
+          stat(
             'Self-update',
             json.supervised ? 'available' : 'not supervised',
             json.supervised ? 'ok' : 'warn'

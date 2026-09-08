@@ -23,7 +23,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 /** Bumped by hand when the server changes; shown in the web UI. */
-const VERSION = '0.2.1'
+const VERSION = '0.3.0'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')
@@ -62,13 +62,20 @@ const TOKENS_FILE = path.join(DATA, 'tokens.json')
 const BLOBS_DIR = path.join(DATA, 'blobs')
 const UPLOADS_DIR = path.join(DATA, 'uploads')
 const USERS_DIR = path.join(DATA, 'u')
+/** Desktop-app installers this server hands out to its own devices. */
+const APP_DIR_STORE = path.join(DATA, 'app')
+const APP_INDEX = path.join(APP_DIR_STORE, 'index.json')
+/** Installers kept, newest first; older ones are only useful for rolling back. */
+const APP_KEEP = 3
 
 if (!ADMIN_TOKEN) {
   console.error('Refusing to start without PRCY_ADMIN_TOKEN set.')
   process.exit(1)
 }
 
-for (const dir of [DATA, BLOBS_DIR, UPLOADS_DIR, USERS_DIR]) fs.mkdirSync(dir, { recursive: true })
+for (const dir of [DATA, BLOBS_DIR, UPLOADS_DIR, USERS_DIR, APP_DIR_STORE]) {
+  fs.mkdirSync(dir, { recursive: true })
+}
 // Half-finished uploads from a previous run are worthless; nobody can resume one.
 fs.rmSync(UPLOADS_DIR, { recursive: true, force: true })
 fs.mkdirSync(UPLOADS_DIR, { recursive: true })
@@ -606,6 +613,7 @@ async function adminStatus(res) {
     running: fs.existsSync(path.join(LIVE_DIR, 'index.js')) ? 'updated' : 'image',
     supervised: process.env.PRCY_LAUNCHER === '1',
     canRollBack: fs.existsSync(path.join(LIVE_DIR, 'index.js.prev')),
+    app: (await loadAppIndex()).releases[0] ?? null,
     registrationOpen: Boolean(INVITE_CODE),
     chunkBytes: CHUNK_LIMIT,
     accounts,
@@ -801,6 +809,78 @@ async function rollBackUpdate(res) {
   }
   send(res, 200, { ok: true, restarting: true })
   setTimeout(() => process.exit(75), 500)
+}
+
+// --- desktop app releases ----------------------------------------------------
+
+/**
+ * The desktop app updates itself from here rather than from a public download.
+ * Every device that syncs is already signed in to this server and can reach it,
+ * so it is the one place all of them agree on.
+ */
+const SAFE_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]{1,20})?$/
+
+const loadAppIndex = () => readJson(APP_INDEX, { releases: [] })
+
+/** Newest first by version, so "latest" is just the head. */
+function compareVersions(a, b) {
+  const parse = (v) => v.split('-')[0].split('.').map(Number)
+  const [x, y] = [parse(a), parse(b)]
+  for (let i = 0; i < 3; i++) {
+    if ((x[i] ?? 0) !== (y[i] ?? 0)) return (y[i] ?? 0) - (x[i] ?? 0)
+  }
+  return 0
+}
+
+async function storeAppRelease(version, notes, body) {
+  if (!SAFE_VERSION.test(String(version ?? ''))) {
+    throw Object.assign(new Error('version must look like 1.2.3'), { status: 400 })
+  }
+  await fsp.mkdir(APP_DIR_STORE, { recursive: true })
+  const file = path.join(APP_DIR_STORE, `${version}.exe`)
+  await fsp.writeFile(file, body)
+
+  const index = await loadAppIndex()
+  const release = {
+    version,
+    notes: String(notes ?? '').slice(0, 2000),
+    size: body.length,
+    sha256: crypto.createHash('sha256').update(body).digest('hex'),
+    publishedAt: Date.now()
+  }
+  index.releases = [release, ...index.releases.filter((r) => r.version !== version)]
+  index.releases.sort((a, b) => compareVersions(a.version, b.version))
+
+  for (const old of index.releases.splice(APP_KEEP)) {
+    await fsp.rm(path.join(APP_DIR_STORE, `${old.version}.exe`), { force: true })
+  }
+  await writeJsonAtomic(APP_INDEX, index)
+  return release
+}
+
+/** GET /v1/app/latest — what a device should be running. */
+async function latestApp(res) {
+  const index = await loadAppIndex()
+  const latest = index.releases[0]
+  if (!latest) return send(res, 404, { error: 'no build published yet' })
+  send(res, 200, latest)
+}
+
+/** GET /v1/app/download/:version — the installer itself, streamed. */
+async function downloadApp(res, version) {
+  if (!SAFE_VERSION.test(version)) return send(res, 400, { error: 'bad version' })
+  const file = path.join(APP_DIR_STORE, `${version}.exe`)
+  try {
+    const stat = await fsp.stat(file)
+    res.writeHead(200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': stat.size,
+      'Cache-Control': 'no-store'
+    })
+    fs.createReadStream(file).pipe(res)
+  } catch {
+    send(res, 404, { error: 'no such build' })
+  }
 }
 
 // --- library -----------------------------------------------------------------
@@ -1006,6 +1086,11 @@ async function finishUpload(req, res, user, uploadId) {
       })
     )
   }
+  if (target.kind === 'app') {
+    // Only the server's owner publishes builds, never a signed-in device.
+    if (!isAdmin(req)) return send(res, 403, { error: 'publishing a build needs the admin token' })
+    return send(res, 200, await storeAppRelease(target.version, target.notes, assembled))
+  }
   if (target.kind === 'blob') {
     if (!SAFE_HASH.test(String(target.hash ?? ''))) return send(res, 400, { error: 'bad hash' })
     return send(res, 200, await storeBlob(target.hash, assembled))
@@ -1028,6 +1113,18 @@ setInterval(
   },
   15 * 60 * 1000
 ).unref()
+
+/** The three chunked-upload routes, shared by accounts and the admin token. */
+async function uploadRoutes(req, res, user, parts) {
+  if (parts.length === 2 && req.method === 'POST') return beginUpload(res, user)
+  if (parts.length === 4 && parts[3] === 'finish' && req.method === 'POST') {
+    return finishUpload(req, res, user, parts[2])
+  }
+  if (parts.length === 4 && req.method === 'PUT') {
+    return putChunk(req, res, user, parts[2], parts[3])
+  }
+  return send(res, 404, { error: 'not found' })
+}
 
 // --- server ------------------------------------------------------------------
 
@@ -1095,7 +1192,16 @@ const server = http.createServer(async (req, res) => {
     }
 
     const auth = await authenticate(req.headers.authorization)
-    if (!auth) return send(res, 401, { error: 'unauthorized' })
+
+    // The admin token is not an account, but publishing a build has to go
+    // through the chunked upload routes like anything else this large. It is
+    // given a staging identity of its own and nothing else.
+    if (!auth) {
+      if (isAdmin(req) && parts[1] === 'uploads') {
+        return await uploadRoutes(req, res, { id: '_admin' }, parts)
+      }
+      return send(res, 401, { error: 'unauthorized' })
+    }
     const user = auth.user
 
     if (parts[1] === 'auth') {
@@ -1114,6 +1220,13 @@ const server = http.createServer(async (req, res) => {
       if (parts[2] === 'devices' && parts.length === 4 && req.method === 'DELETE') {
         if (!SAFE_SEGMENT.test(parts[3])) return send(res, 400, { error: 'bad device' })
         return await revokeDevice(res, auth, parts[3])
+      }
+    }
+
+    if (parts[1] === 'app') {
+      if (parts[2] === 'latest' && req.method === 'GET') return await latestApp(res)
+      if (parts[2] === 'download' && parts[3] && req.method === 'GET') {
+        return await downloadApp(res, parts[3])
       }
     }
 
@@ -1141,15 +1254,7 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'PUT') return await putBlob(req, res, parts[2])
     }
 
-    if (parts[1] === 'uploads') {
-      if (parts.length === 2 && req.method === 'POST') return await beginUpload(res, user)
-      if (parts.length === 4 && parts[3] === 'finish' && req.method === 'POST') {
-        return await finishUpload(req, res, user, parts[2])
-      }
-      if (parts.length === 4 && req.method === 'PUT') {
-        return await putChunk(req, res, user, parts[2], parts[3])
-      }
-    }
+    if (parts[1] === 'uploads') return await uploadRoutes(req, res, user, parts)
 
     send(res, 404, { error: 'not found' })
   } catch (err) {

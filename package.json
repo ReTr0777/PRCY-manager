@@ -1,6 +1,6 @@
 {
   "name": "prcy-manager",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A manager for games downloaded from itch.io and elsewhere",
   "main": "./out/main/index.js",
   "author": "irwan",
@@ -11,7 +11,8 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "dist": "electron-vite build && electron-builder",
-    "icon": "node scripts/make-icon.mjs"
+    "icon": "node scripts/make-icon.mjs",
+    "publish": "node scripts/publish-app.mjs"
   },
   "dependencies": {},
   "devDependencies": {

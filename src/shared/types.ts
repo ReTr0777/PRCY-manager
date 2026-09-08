@@ -160,6 +160,25 @@ export interface SaveFileDiff {
   remote: { size: number; mtime: number } | null
 }
 
+/** A desktop build published to your sync server. */
+export interface AppRelease {
+  version: string
+  notes: string
+  size: number
+  sha256: string
+  publishedAt: number
+}
+
+export interface AppUpdateStatus {
+  /** The version running right now. */
+  current: string
+  /** Null when there is nothing newer, or nothing published at all. */
+  available: AppRelease | null
+  /** Set when the server's build is older than this one — usually a mistake. */
+  behind?: string
+  error?: string
+}
+
 /** What a sync server says about itself before you sign in. */
 export interface SyncServerInfo {
   ok: boolean

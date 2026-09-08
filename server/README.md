@@ -213,6 +213,7 @@ games stay hidden everywhere, and the server never sees the password itself.
       <versionId>.prcysave
   blobs/<sha256>        cover art, content-addressed and shared between accounts
   uploads/<id>/         chunks mid-flight; cleared on start and after an hour
+  app/                  desktop installers, three newest, plus index.json
   server/               an applied update: index.js, ui.html, index.js.prev
   backups/              account files copied before each update, last ten kept
 ```
@@ -244,12 +245,31 @@ device token from `Bearer <token>`.
 | POST | `/v1/uploads` | Start a chunked upload |
 | PUT | `/v1/uploads/:id/:index` | One chunk |
 | POST | `/v1/uploads/:id/finish` | Assemble into a save or a blob |
+| GET | `/v1/app/latest` | The newest desktop build, with its checksum |
+| GET | `/v1/app/download/:version` | That installer |
 | GET/POST/DELETE | `/v1/admin/users[/:name]` | Manage accounts |
 | POST/DELETE | `/v1/admin/session` | Sign the web console in or out |
 | GET | `/v1/admin/status` | Version, uptime and per-account usage |
 | GET | `/v1/admin/update/check` | Compare with the published version |
 | POST | `/v1/admin/update/apply` | Test, install and restart |
 | POST | `/v1/admin/update/rollback` | Put the previous version back |
+
+## Hosting the desktop app
+
+The server also hands out the desktop app's own installer, so devices update
+themselves without anything being published publicly. From the project on your
+build machine:
+
+```bash
+npm run dist
+PRCY_URL=http://tower.local:8787 PRCY_ADMIN_TOKEN=… npm run publish
+```
+
+The upload is chunked like a save, and **only the admin token may publish** — a
+signed-in account gets a 403. The server records the SHA-256 of what it stored;
+each device checks the download against it and discards anything that does not
+match, which is what stands in for a code signature on an unsigned build. The
+three most recent builds are kept, under `/data/app/`.
 
 ## Backups
 

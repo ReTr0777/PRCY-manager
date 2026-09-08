@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
   AppState,
+  AppUpdateStatus,
   ConflictChoice,
   CoverCandidate,
   CoverFetchReport,
@@ -77,6 +78,19 @@ const api = {
     ipcRenderer.invoke('sync:dismissMatch', gameId, remoteTitle),
   resolveConflict: (gameId: string, choice: ConflictChoice): Promise<boolean> =>
     ipcRenderer.invoke('sync:resolve', gameId, choice),
+
+  checkAppUpdate: (): Promise<AppUpdateStatus> => ipcRenderer.invoke('app:checkUpdate'),
+  downloadAppUpdate: (version: string): Promise<Result & { file?: string }> =>
+    ipcRenderer.invoke('app:downloadUpdate', version),
+  installAppUpdate: (file: string): Promise<Result> => ipcRenderer.invoke('app:installUpdate', file),
+  onAppUpdateProgress: (
+    cb: (progress: { received: number; total: number }) => void
+  ): (() => void) => {
+    const listener = (_e: unknown, progress: { received: number; total: number }): void =>
+      cb(progress)
+    ipcRenderer.on('app:updateProgress', listener)
+    return () => ipcRenderer.removeListener('app:updateProgress', listener)
+  },
 
   storageReport: (): Promise<StorageReport> => ipcRenderer.invoke('storage:report'),
   measureStorage: (all: boolean): Promise<{ measured: number; bytes: number }> =>

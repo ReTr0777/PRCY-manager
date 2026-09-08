@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import SyncSettings from './SyncSettings'
+import AppUpdate from './AppUpdate'
 import type { AppState, SaveConflict, TitleSuggestion } from '../../../shared/types'
 
 interface Props {
@@ -174,6 +175,8 @@ export default function SettingsDialog({ state, onClose, onToast, onConflicts, o
             </>
           )}
         </section>
+
+        <AppUpdate onToast={onToast} />
 
         <section>
           <h3>Data</h3>

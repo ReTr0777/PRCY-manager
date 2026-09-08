@@ -190,6 +190,22 @@ wrong answer. Playtime is tracked per device and
 summed, so two machines never overwrite each other's hours, and everything else
 merges by whichever device was edited last.
 
+**Updating the app.** The desktop app updates itself from the same server that
+holds the saves — every device that syncs is already signed in to it and can
+reach it, so nothing has to be published anywhere public. Build an installer
+with `npm run dist`, then put it on the server:
+
+```bash
+PRCY_URL=http://tower.local:8787 PRCY_ADMIN_TOKEN=… npm run publish
+```
+
+It uploads in chunks like a save does, and only the admin token may publish — a
+signed-in account is refused. Each device sees the new version under
+**Settings → App updates**, downloads it, checks it against the SHA-256 the
+server recorded, and refuses to run anything that does not match. Installing
+closes the app so Windows can replace its files. The server keeps the three most
+recent builds.
+
 ## Layout
 
 ```
@@ -201,6 +217,7 @@ src/
     launcher.ts spawning and playtime sessions
     vault.ts    password hashing, lock state
     covers.ts   Steam / SteamGridDB art search and download
+    appupdate.ts checks, downloads and verifies a new build from the server
     storage.ts  folder sizes, drive usage, deleting to the Recycle Bin
     sync.ts     cross-device merge, save upload/download, conflicts
     savepaths.ts save-location detection and portable path tokens
@@ -210,7 +227,8 @@ src/
   renderer/   React UI
   shared/     types used by both sides
 scripts/
-  make-icon.mjs  renders the app mark to build/icon.ico (no image deps)
+  make-icon.mjs   renders the app mark to build/icon.ico (no image deps)
+  publish-app.mjs uploads a built installer to your sync server
 ```
 
 Your library lives in a single JSON file under Electron's `userData` directory —
