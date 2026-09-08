@@ -9,6 +9,8 @@ services:
       # The downloads-only listener. Publish this one if you want people
       # outside your network to be able to fetch the installer.
       - '8788:8788'
+      # Sync for people outside your network, when PRCY_SYNC_PORT is set.
+      - '8789:8789'
     environment:
       # Generate each with:
       #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -27,6 +29,13 @@ services:
       # The address people outside reach you at, so the console hands out a
       # link that works for them rather than one only you can use.
       PRCY_PUBLIC_URL: ${PRCY_PUBLIC_URL:-}
+      # Syncing without managing: everything an app needs, no console and no
+      # admin routes. Set it to let people use the server from outside your
+      # network without being on it.
+      PRCY_SYNC_PORT: ${PRCY_SYNC_PORT:-}
+      # Required once either public port is behind a proxy, so the login rate
+      # limiter sees real addresses instead of the proxy's.
+      PRCY_TRUST_PROXY: ${PRCY_TRUST_PROXY:-}
     volumes:
       # On Unraid this is usually /mnt/user/appdata/prcy-sync
       - ./data:/data

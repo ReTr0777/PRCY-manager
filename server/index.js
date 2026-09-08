@@ -23,7 +23,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 /** Bumped by hand when the server changes; shown in the web UI. */
-const VERSION = '0.6.1'
+const VERSION = '0.7.0'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')
@@ -44,6 +44,13 @@ const PUBLIC_PORT = Number(process.env.PRCY_PUBLIC_PORT ?? 0)
  * people who already have access — which is the opposite of the point.
  */
 const PUBLIC_URL = (process.env.PRCY_PUBLIC_URL ?? '').replace(/\/+$/, '')
+/**
+ * A port that serves syncing but not managing: everything an app needs to sign
+ * in and exchange saves, with the console and the admin routes absent. Set it
+ * when someone should be able to use the server from outside your network
+ * without being let into the network itself.
+ */
+const SYNC_PORT = Number(process.env.PRCY_SYNC_PORT ?? 0)
 
 /**
  * The largest body accepted in one request. Anything bigger has to arrive as
@@ -703,7 +710,8 @@ async function smokeTest(entry) {
       // already bound would fail it for a reason that has nothing to do with
       // the build.
       PRCY_PUBLIC_PORT: '',
-      PRCY_PUBLIC_URL: ''
+      PRCY_PUBLIC_URL: '',
+      PRCY_SYNC_PORT: ''
     },
     stdio: ['ignore', 'pipe', 'pipe']
   })
@@ -1201,7 +1209,7 @@ async function uploadRoutes(req, res, user, parts) {
 
 // --- server ------------------------------------------------------------------
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req, res) {
   try {
     const { pathname } = new URL(req.url, 'http://x')
     const ip = clientIp(req)
@@ -1349,7 +1357,33 @@ const server = http.createServer(async (req, res) => {
     // rather than reading gigabytes we are going to throw away.
     if (err?.closeAfterReply) res.on('finish', () => req.destroy())
   }
-})
+}
+
+const server = http.createServer(handleRequest)
+
+/**
+ * The sync-only listener. It is the same handler with two things taken away:
+ * the console and every /v1/admin route. Managing the server stays on the
+ * private port, so publishing this one exposes accounts and saves to their
+ * owners and nothing else to anybody.
+ */
+const syncServer = SYNC_PORT
+  ? http.createServer((req, res) => {
+      const { pathname } = new URL(req.url, 'http://x')
+      if (pathname === '/' || pathname === '/index.html' || pathname.startsWith('/v1/admin')) {
+        return send(res, 404, { error: 'not found' })
+      }
+      return handleRequest(req, res)
+    })
+  : null
+
+if (syncServer) {
+  syncServer.requestTimeout = 0
+  syncServer.headersTimeout = 60_000
+  syncServer.listen(SYNC_PORT, () =>
+    console.log(`sync-only listener on :${SYNC_PORT} — no console, no admin routes`)
+  )
+}
 
 // Uploading a multi-gigabyte save over a slow link must not trip the idle timer.
 /**

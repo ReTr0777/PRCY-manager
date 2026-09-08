@@ -184,6 +184,38 @@ The other knobs worth setting if you do proxy it: a **Cache Rule bypassing cache
 for `/v1/*`** (the server already sends `no-store`, but be explicit), and no
 Rocket Loader or minification, which have nothing to transform here anyway.
 
+## Letting someone sync from outside your network
+
+A share link gets the app onto their machine; using it needs port 8787, which is
+on your private network. Two ways to close that gap.
+
+**Share the machine over Tailscale.** No new code and nothing published: in the
+Tailscale admin console, share the server with someone on another tailnet. They
+accept and it appears on their network. They do need to run Tailscale, and by
+default they can reach every port on that host — an ACL limiting them to 8787 is
+worth writing if you go this way.
+
+**Or publish `PRCY_SYNC_PORT`.** It is the same server with the console and every
+`/v1/admin` route removed — 404 even when the admin token is presented — so it
+can face the internet while managing the server stays private. Then anyone signs
+in from anywhere with just their account, with nothing to install.
+
+```
+  PRCY_SYNC_PORT=8789
+  PRCY_TRUST_PROXY=1
+```
+
+Set both. Without `PRCY_TRUST_PROXY` the login rate limiter sees one address for
+the whole internet, and one person guessing wrong ten times locks out everybody.
+Then put [`swag/prcy-sync.subdomain.conf`](swag/prcy-sync.subdomain.conf) in
+`/config/nginx/proxy-confs/` and point the app at `https://sync.example.com`.
+
+That publishes an authentication endpoint, so weigh it accordingly: passwords are
+scrypt-hashed, wrong ones are indistinguishable from a missing account, and
+failures are counted per account and per address. The invite code is what decides
+whether strangers can create accounts at all — leave it unset once your people
+are set up.
+
 ## Security
 
 Passwords are scrypt-hashed with a per-account salt. Device tokens are 32 random
