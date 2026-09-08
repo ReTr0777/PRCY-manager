@@ -133,6 +133,21 @@
         </section>
 
         <section>
+          <h2>Publish a build</h2>
+          <p class="dim" style="margin-top:0">
+            Upload the installer from <code>dist/</code> and every signed-in device offers it under
+            Settings. Goes up in chunks, so the size does not matter.
+          </p>
+          <div class="row">
+            <input type="file" id="buildFile" accept=".exe" />
+            <input id="buildVersion" placeholder="version, e.g. 0.3.0" style="width:170px" />
+            <button class="primary" id="publishBuild">Publish</button>
+          </div>
+          <input id="buildNotes" placeholder="what changed (optional)" style="width:100%; margin-top:9px" />
+          <div id="publishState" class="dim" style="margin-top:9px">Nothing selected.</div>
+        </section>
+
+        <section>
           <h2>Share the installer</h2>
           <p class="dim" style="margin-top:0">
             A link anyone can use to download the newest build, with no account. For handing the
@@ -314,6 +329,60 @@
           toast(json.error, 'bad')
         }
         refresh()
+      }
+
+      // The version usually sits in the filename already.
+      $('buildFile').onchange = () => {
+        const file = $('buildFile').files[0]
+        if (!file) return
+        const guess = file.name.match(/(\d+\.\d+\.\d+)/)
+        if (guess && !$('buildVersion').value) $('buildVersion').value = guess[1]
+        $('publishState').textContent = `${file.name} — ${size(file.size)}`
+      }
+
+      $('publishBuild').onclick = async () => {
+        const file = $('buildFile').files[0]
+        const version = $('buildVersion').value.trim()
+        if (!file) return toast('Pick the installer first.', 'bad')
+        if (!/^\d+\.\d+\.\d+/.test(version)) return toast('Give it a version like 0.3.0.', 'bad')
+
+        $('publishBuild').disabled = true
+        try {
+          const health = await (await fetch('/health')).json()
+          const chunkSize = health.maxBodyBytes || 8 * 1024 * 1024
+
+          const begin = await call('POST', '/v1/uploads', {})
+          if (begin.status !== 200) throw new Error(begin.json.error ?? 'could not start the upload')
+          const uploadId = begin.json.uploadId
+
+          // Slice rather than read: the file never has to be held in memory.
+          let sent = 0
+          for (let index = 0; sent < file.size; index++) {
+            const part = file.slice(sent, sent + chunkSize)
+            const res = await fetch(`/v1/uploads/${uploadId}/${index}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/octet-stream' },
+              body: part
+            })
+            if (!res.ok) throw new Error(`chunk ${index} was rejected`)
+            sent += part.size
+            $('publishState').textContent = `Uploading ${Math.round((sent / file.size) * 100)}%`
+          }
+
+          const done = await call('POST', `/v1/uploads/${uploadId}/finish`, {
+            target: { kind: 'app', version, notes: $('buildNotes').value }
+          })
+          if (done.status !== 200) throw new Error(done.json.error ?? 'the server refused it')
+
+          $('publishState').innerHTML =
+            `<span class="ok">Published v${done.json.version} — ${size(done.json.size)}</span>`
+          toast('Published. Devices will offer it on their next check.')
+          await refresh()
+        } catch (err) {
+          $('publishState').innerHTML = `<span class="bad">${err.message}</span>`
+        } finally {
+          $('publishBuild').disabled = false
+        }
       }
 
       $('makeShare').onclick = async () => {

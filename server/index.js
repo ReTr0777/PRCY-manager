@@ -23,7 +23,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 /** Bumped by hand when the server changes; shown in the web UI. */
-const VERSION = '0.7.0'
+const VERSION = '0.8.0'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')

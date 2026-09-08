@@ -298,6 +298,10 @@ npm run dist
 PRCY_URL=http://tower.local:8787 PRCY_ADMIN_TOKEN=… npm run publish
 ```
 
+The console can do this too, without a terminal: **Publish a build**, pick the
+installer, press the button. The browser slices the file and sends it in chunks
+the same way, so the size does not matter and nothing is held in memory.
+
 The upload is chunked like a save, and **only the admin token may publish** — a
 signed-in account gets a 403. The server records the SHA-256 of what it stored;
 each device checks the download against it and discards anything that does not
