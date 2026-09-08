@@ -474,7 +474,13 @@ function toRemote(game: Game, previous: RemoteGame | undefined, deviceId: string
  * last. Playtime is per device and summed, so two machines never overwrite each
  * other's hours.
  */
-function mergeInto(game: Game, remote: RemoteGame, deviceId: string): boolean {
+function mergeInto(
+  game: Game,
+  remote: RemoteGame,
+  deviceId: string,
+  /** Collects save locations taken from another device, for reporting. */
+  adopted?: string[]
+): boolean {
   let changed = false
 
   if (remote.updatedAt > game.updatedAt) {
@@ -492,16 +498,26 @@ function mergeInto(game: Game, remote: RemoteGame, deviceId: string): boolean {
       game.hidden = remote.hidden
       changed = true
     }
-    // Only tokenised locations mean the same thing on both machines. A raw
-    // absolute path belongs to the device that added it and is kept out of the
-    // merge, so one machine can never point another at its own folders.
-    const merged = [...remote.savePaths.filter(isPortable), ...game.savePaths.filter((p) => !isPortable(p))]
-    const unique = [...new Set(merged)]
-    if (game.savePaths.join('|') !== unique.join('|')) {
-      game.savePaths = unique
-      changed = true
-    }
     game.updatedAt = remote.updatedAt
+  }
+
+  // Save locations are not a preference to be won, they are a fact about where
+  // the game keeps its files — so they are adopted whichever side found them
+  // first, rather than following the merge clock. A game added on a second
+  // device looks "newer" than the entry that has been there for weeks, and
+  // under last-writer-wins its empty list would erase the real one.
+  //
+  // Only tokenised locations mean the same thing on both machines. A raw
+  // absolute path belongs to the device that added it and never travels, so one
+  // machine can never point another at its own folders.
+  const merged = [
+    ...game.savePaths,
+    ...remote.savePaths.filter((p) => isPortable(p) && !game.savePaths.includes(p))
+  ]
+  if (merged.length !== game.savePaths.length) {
+    for (const p of merged) if (!game.savePaths.includes(p)) adopted?.push(p)
+    game.savePaths = merged
+    changed = true
   }
 
   if (remote.lastPlayed && (!game.lastPlayed || remote.lastPlayed > game.lastPlayed)) {
@@ -627,7 +643,8 @@ export async function syncNow(
     coversUploaded: 0,
     coversDownloaded: 0,
     conflicts: [],
-    suggestions: []
+    suggestions: [],
+    adoptedSaveLocations: []
   }
 
   try {
@@ -649,7 +666,9 @@ export async function syncNow(
     for (const game of games) {
       const key = gameKey(game)
       const remoteGame = remote.games[key]
-      if (remoteGame && mergeInto(game, remoteGame, deviceId)) result.metadataChanged++
+      const adopted: string[] = []
+      if (remoteGame && mergeInto(game, remoteGame, deviceId, adopted)) result.metadataChanged++
+      if (adopted.length > 0) result.adoptedSaveLocations.push({ title: game.title, paths: adopted })
 
       onProgress?.('covers', game.title)
       // Art you picked beats art a scan happened to find, whichever machine it
@@ -886,7 +905,7 @@ export async function syncBeforeLaunch(gameId: string): Promise<LaunchPrep> {
   const game = store.findGame(gameId)
   if (!game) return { ok: false, error: 'No such game.' }
   const { syncUrl, syncToken, syncOnPlay, deviceId } = store.settings
-  if (!syncUrl || !syncToken || !syncOnPlay || game.savePaths.length === 0) return { ok: true }
+  if (!syncUrl || !syncToken || !syncOnPlay) return { ok: true }
 
   try {
     // A server that is slow or away must never stop you playing.
@@ -895,8 +914,18 @@ export async function syncBeforeLaunch(gameId: string): Promise<LaunchPrep> {
     const remote: RemoteLibrary = fetched.json
     const key = gameKey(game)
     const remoteGame = remote.games[key]
+    // Take the other device's save locations first: a game only just added here
+    // has none of its own, and without them there is nothing to restore into.
+    const adopted: string[] = []
+    if (remoteGame) {
+      mergeInto(game, remoteGame, deviceId, adopted)
+      if (adopted.length > 0) store.save()
+    }
+
     const remoteSave = remoteGame?.save ?? null
-    if (!remoteSave) return { ok: true }
+    if (!remoteSave || game.savePaths.length === 0) {
+      return { ok: true, adoptedSaveLocations: adopted }
+    }
 
     const known = game.sync ?? { saveHash: null, versionId: null, syncedAt: null }
     if (remoteSave.hash === known.saveHash) return { ok: true }
@@ -923,9 +952,8 @@ export async function syncBeforeLaunch(gameId: string): Promise<LaunchPrep> {
 
     const archive = await withTimeout(downloadSave(key, remoteSave.versionId), 120_000)
     await restoreSave(game, archive, remoteSave.hash, remoteSave.versionId)
-    if (remoteGame) mergeInto(game, remoteGame, deviceId)
     store.save()
-    return { ok: true, pulledFrom: remoteSave.deviceName }
+    return { ok: true, pulledFrom: remoteSave.deviceName, adoptedSaveLocations: adopted }
   } catch (err) {
     // Not being able to check is not a reason to refuse to launch.
     return { ok: true, error: (err as Error).message }

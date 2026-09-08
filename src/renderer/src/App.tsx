@@ -147,7 +147,11 @@ export default function App(): JSX.Element {
       setToast(result.error ?? 'Could not launch that game.')
       return
     }
-    if (result.pulledFrom) setToast(`Pulled the newest save from ${result.pulledFrom}.`)
+    if (result.adoptedSaveLocations?.length) {
+      setToast(`Save location set from your other device — pulled the newest save.`)
+    } else if (result.pulledFrom) {
+      setToast(`Pulled the newest save from ${result.pulledFrom}.`)
+    }
   }, [])
 
   const openHidden = useCallback(() => {

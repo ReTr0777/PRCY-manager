@@ -175,7 +175,11 @@ detail panel — **Find saves** looks in the places Windows games actually use
 (`%APPDATA%`, `%LOCALAPPDATA%`, LocalLow, `Documents\My Games`, `Saved Games`,
 Ren'Py, Godot, and save folders inside the game itself), and you can add any
 folder by hand. Locations are stored as tokens like `{APPDATA}/RenPy/Game`, so
-they expand to the right folder on each machine. A location that cannot be
+they expand to the right folder on each machine. A location found on one device
+is adopted by the others — it describes where the game keeps its files, not a
+preference, so it travels whichever side found it first rather than following
+the merge clock. Pressing **Play** adopts it too, so a game set up on the
+desktop configures itself on the laptop the first time you start it there. A location that cannot be
 tokenised is device-specific and is deliberately never shared, so one PC can
 never point another at a path that means something different there.
 

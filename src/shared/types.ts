@@ -109,6 +109,8 @@ export interface SyncResult {
   conflicts: SaveConflict[]
   /** Games that look like another device's copy under a slightly different name. */
   suggestions: TitleSuggestion[]
+  /** Save locations taken from another device that had already found them. */
+  adoptedSaveLocations: { title: string; paths: string[] }[]
 }
 
 /**
@@ -228,6 +230,8 @@ export interface LaunchPrep {
   pulledFrom?: string
   /** Set when both sides changed and the user has to choose first. */
   conflict?: SaveConflict
+  /** Save locations this device just took from another one. */
+  adoptedSaveLocations?: string[]
 }
 
 /** How the user resolved one conflict. */

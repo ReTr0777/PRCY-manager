@@ -35,7 +35,9 @@ const api = {
   updateGame: (id: string, patch: Partial<Game>): Promise<Game | null> =>
     ipcRenderer.invoke('game:update', id, patch),
   removeGame: (id: string): Promise<void> => ipcRenderer.invoke('game:remove', id),
-  launch: (id: string): Promise<Result & { conflict?: SaveConflict; pulledFrom?: string }> =>
+  launch: (
+    id: string
+  ): Promise<Result & { conflict?: SaveConflict; pulledFrom?: string; adoptedSaveLocations?: string[] }> =>
     ipcRenderer.invoke('game:launch', id),
   markStopped: (id: string): Promise<void> => ipcRenderer.invoke('game:markStopped', id),
   openFolder: (id: string): Promise<void> => ipcRenderer.invoke('game:openFolder', id),

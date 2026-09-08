@@ -64,6 +64,13 @@ export default function SyncSettings({ state, onToast, onConflicts, onMatches }:
     if (result.coversUploaded) parts.push(`${result.coversUploaded} covers up`)
     if (result.coversDownloaded) parts.push(`${result.coversDownloaded} covers down`)
     onToast(`Sync finished — ${parts.length ? parts.join(', ') : 'already up to date'}`)
+    if (result.adoptedSaveLocations.length > 0) {
+      const first = result.adoptedSaveLocations[0]
+      const rest = result.adoptedSaveLocations.length - 1
+      onToast(
+        `Save location for “${first.title}” taken from your other device${rest > 0 ? `, and ${rest} more` : ''}.`
+      )
+    }
     if (result.conflicts.length > 0) onConflicts(result.conflicts)
     if (result.suggestions.length > 0) onMatches(result.suggestions)
   }

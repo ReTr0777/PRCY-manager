@@ -177,7 +177,7 @@ export function registerIpc(): void {
 
     const result = await launcher.launch(id)
     broadcast()
-    return { ...result, pulledFrom: prep.pulledFrom }
+    return { ...result, pulledFrom: prep.pulledFrom, adoptedSaveLocations: prep.adoptedSaveLocations }
   })
 
   ipcMain.handle('game:markStopped', (_e, id: string) => {
