@@ -233,6 +233,8 @@ src/
   preload/    contextBridge API surface
   renderer/   React UI
   shared/     types used by both sides
+server/
+  swag/           a ready SWAG proxy conf for the downloads-only port
 scripts/
   make-icon.mjs   renders the app mark to build/icon.ico (no image deps)
   publish-app.mjs uploads a built installer to your sync server

@@ -289,8 +289,16 @@ and `/health` — and answers 404 to everything else, so the console, the API, t
 accounts and every save stay on the private port and cannot be reached from
 outside at all.
 
-The tidiest way to publish it is a **Cloudflare Tunnel**: no port forwarding, no
-router changes, and your home address stays out of DNS.
+**With SWAG**, which is the least work if you already run it, drop
+[`swag/prcy-dl.subdomain.conf`](swag/prcy-dl.subdomain.conf) into
+`/config/nginx/proxy-confs/`, set `$upstream_app` to your server's address, and
+restart SWAG. Point a `dl.` record at your IP and it will get a certificate on
+its own. Because the port behind it serves only share links, the config needs no
+location filtering — there is nothing else there to protect, and a mistake in
+that file cannot expose the console.
+
+**With a Cloudflare Tunnel** instead, if you would rather not forward ports or
+put your home address in DNS:
 
 ```yaml
 # ~/.cloudflared/config.yml
