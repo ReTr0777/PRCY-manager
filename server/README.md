@@ -245,6 +245,7 @@ device token from `Bearer <token>`.
 | POST | `/v1/uploads` | Start a chunked upload |
 | PUT | `/v1/uploads/:id/:index` | One chunk |
 | POST | `/v1/uploads/:id/finish` | Assemble into a save or a blob |
+| GET/HEAD | `/d/:token` | Share link: the newest installer, no account |
 | GET | `/v1/app/latest` | The newest desktop build, with its checksum |
 | GET | `/v1/app/download/:version` | That installer |
 | GET/POST/DELETE | `/v1/admin/users[/:name]` | Manage accounts |
@@ -270,6 +271,43 @@ signed-in account gets a 403. The server records the SHA-256 of what it stored;
 each device checks the download against it and discards anything that does not
 match, which is what stands in for a code signature on an unsigned build. The
 three most recent builds are kept, under `/data/app/`.
+
+### Giving the app to someone who has no account
+
+Someone you are handing the app to cannot sign in until they have it, so the
+console has **Share the installer**: it makes a link like
+`https://your-server/d/9f3a...` that serves the newest build with no account at
+all. The token is 16 random bytes — unguessable, though anyone you send it to
+can pass it on. **Revoke** stops it at once, and creating a new one replaces the
+old.
+
+They still have to reach the server, and putting someone on your VPN just to
+hand them an installer is a far bigger grant than it deserves. So set
+**`PRCY_PUBLIC_PORT`** (8788 in the compose file) and publish *that* port
+instead. It is a second listener that knows exactly two routes — the share link
+and `/health` — and answers 404 to everything else, so the console, the API, the
+accounts and every save stay on the private port and cannot be reached from
+outside at all.
+
+The tidiest way to publish it is a **Cloudflare Tunnel**: no port forwarding, no
+router changes, and your home address stays out of DNS.
+
+```yaml
+# ~/.cloudflared/config.yml
+ingress:
+  - hostname: dl.example.com
+    service: http://tower.local:8788
+  - service: http_status:404
+```
+
+For a one-off, `cloudflared tunnel --url http://tower.local:8788` gives a random
+`trycloudflare.com` address that lives as long as the command runs — enough to
+send someone a link and then close it. Cloudflare's 100 MB cap applies to
+uploads, so downloads through it are fine; their terms do discourage serving
+large files through the CDN, which makes this reasonable for the occasional
+installer rather than as a download host.
+
+Forwarding port 8788 on your router works too, and exposes your home IP.
 
 ## Backups
 
