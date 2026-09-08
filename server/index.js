@@ -23,7 +23,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 /** Bumped by hand when the server changes; shown in the web UI. */
-const VERSION = '0.5.0'
+const VERSION = '0.6.0'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')
@@ -38,6 +38,12 @@ const TRUST_PROXY = process.env.PRCY_TRUST_PROXY === '1'
  * account data behind the public address at all.
  */
 const PUBLIC_PORT = Number(process.env.PRCY_PUBLIC_PORT ?? 0)
+/**
+ * The address share links should be handed out as. The console is reached at a
+ * private address, so without this it would offer a link that only works for
+ * people who already have access — which is the opposite of the point.
+ */
+const PUBLIC_URL = (process.env.PRCY_PUBLIC_URL ?? '').replace(/\/+$/, '')
 
 /**
  * The largest body accepted in one request. Anything bigger has to arrive as
@@ -622,6 +628,7 @@ async function adminStatus(res) {
     canRollBack: fs.existsSync(path.join(LIVE_DIR, 'index.js.prev')),
     app: (await loadAppIndex()).releases[0] ?? null,
     sharePath: (await loadAppIndex()).share ? `/d/${(await loadAppIndex()).share.token}` : null,
+    publicUrl: PUBLIC_URL || null,
     registrationOpen: Boolean(INVITE_CODE),
     chunkBytes: CHUNK_LIMIT,
     accounts,

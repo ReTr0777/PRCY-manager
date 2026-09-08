@@ -289,6 +289,11 @@ and `/health` — and answers 404 to everything else, so the console, the API, t
 accounts and every save stay on the private port and cannot be reached from
 outside at all.
 
+Set **`PRCY_PUBLIC_URL`** to that address as well — `https://dl.example.com` —
+and the console hands out links using it. Without it the console builds the link
+from whatever address you typed to reach the console, which is a private one and
+works for nobody you are sending it to.
+
 **With SWAG**, which is the least work if you already run it, drop
 [`swag/prcy-dl.subdomain.conf`](swag/prcy-dl.subdomain.conf) into
 `/config/nginx/proxy-confs/`, set `$upstream_app` to your server's address, and

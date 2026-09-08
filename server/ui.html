@@ -148,7 +148,9 @@
           <div class="note">
             The link is 16 random bytes and nothing else — unguessable, but anyone you send it to
             can pass it on. Revoking it takes effect at once, and creating a new one replaces the
-            old.
+            old. Set <code>PRCY_PUBLIC_URL</code> on the container to the address people outside
+            reach you at, and the link shown here uses it instead of whatever you typed to get
+            to this page.
           </div>
         </section>
 
@@ -250,7 +252,10 @@
 
         $('rollback').hidden = !json.canRollBack
 
-        const link = json.sharePath ? location.origin + json.sharePath : ''
+        // PRCY_PUBLIC_URL is the address people outside can actually use; the
+        // console itself is usually reached at a private one.
+        const base = json.publicUrl || location.origin
+        const link = json.sharePath ? base + json.sharePath : ''
         $('shareLink').value = link
         $('killShare').hidden = !link
         $('makeShare').textContent = link ? 'Replace' : 'Create'
