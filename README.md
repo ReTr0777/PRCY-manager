@@ -142,6 +142,13 @@ password and keeps a token of its own, so signing one device out leaves the rest
 alone. Sign-ups need an invite code the server owner sets, or the owner adds
 accounts with an admin token that cannot read anybody's library.
 
+The server has a small web console at its own address: sign in with the admin
+token to see what it holds, add or remove accounts, and update the server in
+place. An update replaces only the server's own code — the new version is booted
+against a throwaway directory and has to answer before it is installed, the
+previous one stays on disk to step back to, and a supervisor rolls back by
+itself if a version starts failing. Saves and accounts are never touched by it.
+
 Anything larger than one request's worth is uploaded in chunks and reassembled
 on the server. That is not an optimisation: proxies cap request bodies —
 Cloudflare refuses anything over 100 MB below its Enterprise plan — and a big

@@ -1,12 +1,53 @@
 # PRCY sync server
 
-The server half of PRCY Manager's cross-device sync. One file, no dependencies —
-`index.js` runs on plain Node 20+, so the container is `node:22-alpine` plus a
-script and there is nothing to keep updated.
+The server half of PRCY Manager's cross-device sync. No dependencies: `index.js`
+is the whole server, `launch.js` supervises it so it can update itself, and
+`ui.html` is the console. They run on plain Node 20+, so the container is
+`node:22-alpine` plus three files and nothing to install.
 
 It is a dumb, consistent store: it never merges. Every merge rule lives in the
 desktop app (`src/main/sync.ts`), so there is one implementation of them and the
 server stays something you can read in a sitting.
+
+## The web console
+
+Open `http://tower.local:8787` in a browser and sign in with `PRCY_ADMIN_TOKEN`.
+The console shows what the server holds, manages accounts, and updates the
+server itself.
+
+Signing in exchanges the token for a session cookie, so the token is not sitting
+in browser storage. Sessions last twelve hours and are held in memory, so a
+restart signs you out. Ten wrong tokens from one address inside fifteen minutes
+stop further attempts.
+
+## Updating from the console
+
+**Check for updates** compares the `index.js` on the server with the one in the
+GitHub repository (`PRCY_UPDATE_URL` if you host it elsewhere). **Update and
+restart** then does this, in order:
+
+1. downloads the new `index.js` and `ui.html` to a staging folder;
+2. **boots the candidate** on a spare port against a throwaway data directory
+   and waits for it to answer `/health` — a file that does not parse, or that
+   dies on start, is discarded here and nothing is changed;
+3. copies `users.json`, `tokens.json` and every account's `library.json` into
+   `/data/backups/pre-update-<timestamp>/`, keeping the last ten;
+4. moves the current server aside as `index.js.prev` and swaps the new one in;
+5. exits with code 75, which `launch.js` takes as "start me again".
+
+**Saves, accounts and cover art are never read or written by an update.** They
+live in `/data/u/` and `/data/blobs/`, and the update only touches
+`/data/server/`. The new code lands on the data volume rather than in the image,
+so it also survives the container being recreated.
+
+If an update runs but misbehaves, **Roll back** puts `index.js.prev` back and
+restarts. And if a new version somehow starts failing later, `launch.js` notices
+three quick exits in a row and steps back on its own — first to the previous
+update, then to the version baked into the image — so the server comes back up
+without anyone logging in.
+
+That safety net is why the container runs `launch.js` rather than `index.js`. A
+server started directly refuses to self-update, and the console says so.
 
 ## Accounts
 
@@ -76,6 +117,10 @@ To build the image on the Unraid box, copy the `server/` folder to
 Put `/mnt/user/appdata/prcy-sync` on a share that is set to **Cache: Yes** or
 lives on the array — saves are small but they are the thing you would miss.
 
+Open `http://tower.local:8787` in a browser and sign in with the admin token to
+reach the console, where you can add accounts and update the server later
+without touching a terminal.
+
 Then in the app on each device: **Settings → Cross-device sync**, enter
 `http://tower.local:8787`, and sign in (or press *Create an account* and enter
 the invite code). Press **Test connection**, then **Sync now**.
@@ -83,8 +128,11 @@ the invite code). Press **Test connection**, then **Sync now**.
 Without a container:
 
 ```bash
-PRCY_ADMIN_TOKEN=… PRCY_DATA=/mnt/user/appdata/prcy-sync node index.js
+PRCY_ADMIN_TOKEN=… PRCY_DATA=/mnt/user/appdata/prcy-sync node launch.js
 ```
+
+Start `launch.js`, not `index.js` — the supervisor is what makes updating from
+the console possible, and what rolls a bad one back.
 
 ## Reaching it from outside the house
 
@@ -154,6 +202,8 @@ games stay hidden everywhere, and the server never sees the password itself.
       <versionId>.prcysave
   blobs/<sha256>        cover art, content-addressed and shared between accounts
   uploads/<id>/         chunks mid-flight; cleared on start and after an hour
+  server/               an applied update: index.js, ui.html, index.js.prev
+  backups/              account files copied before each update, last ten kept
 ```
 
 Save versions are never overwritten. Uploading a save that conflicts with
@@ -184,6 +234,11 @@ device token from `Bearer <token>`.
 | PUT | `/v1/uploads/:id/:index` | One chunk |
 | POST | `/v1/uploads/:id/finish` | Assemble into a save or a blob |
 | GET/POST/DELETE | `/v1/admin/users[/:name]` | Manage accounts |
+| POST/DELETE | `/v1/admin/session` | Sign the web console in or out |
+| GET | `/v1/admin/status` | Version, uptime and per-account usage |
+| GET | `/v1/admin/update/check` | Compare with the published version |
+| POST | `/v1/admin/update/apply` | Test, install and restart |
+| POST | `/v1/admin/update/rollback` | Put the previous version back |
 
 ## Backups
 

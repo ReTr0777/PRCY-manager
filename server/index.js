@@ -12,11 +12,18 @@
  *
  *   PRCY_ADMIN_TOKEN=<secret> PRCY_DATA=/data node index.js
  */
+import { spawn } from 'node:child_process'
 import http from 'node:http'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
+import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 import crypto from 'node:crypto'
+import { fileURLToPath } from 'node:url'
+
+/** Bumped by hand when the server changes; shown in the web UI. */
+const VERSION = '0.2.0'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')
@@ -32,6 +39,21 @@ const INVITE_CODE = process.env.PRCY_INVITE_CODE ?? ''
 const CHUNK_LIMIT = Math.max(1, Number(process.env.PRCY_CHUNK_MB ?? 8)) * 1024 * 1024
 /** Ceiling for an assembled upload, i.e. one game's whole save set. */
 const MAX_ASSEMBLED = Math.max(1, Number(process.env.PRCY_MAX_UPLOAD_MB ?? 2048)) * 1024 * 1024
+
+/**
+ * Where a self-applied update goes. It lives on the data volume rather than in
+ * the image, so an update survives the container being recreated, and the
+ * launcher can step back to the image's own copy if one goes wrong.
+ */
+const HERE = path.dirname(fileURLToPath(import.meta.url))
+const APP_DIR = process.env.PRCY_APP_DIR ?? HERE
+const LIVE_DIR = path.join(DATA, 'server')
+const UPDATE_URL = (
+  process.env.PRCY_UPDATE_URL ??
+  'https://raw.githubusercontent.com/ReTr0777/PRCY-manager/main/server/'
+).replace(/\/*$/, '/')
+/** Files an update replaces. Everything else in /data is left alone. */
+const UPDATE_FILES = ['index.js', 'ui.html']
 
 const USERS_FILE = path.join(DATA, 'users.json')
 const TOKENS_FILE = path.join(DATA, 'tokens.json')
@@ -414,6 +436,353 @@ async function adminResetPassword(req, res, username) {
   send(res, done ? 200 : 404, done ? { ok: true } : { error: 'no such user' })
 }
 
+// --- admin sessions and the web UI -------------------------------------------
+
+/**
+ * The web UI signs in with the admin token once and gets a session cookie, so
+ * the token itself is not sitting in browser storage or in every request. The
+ * map is in memory on purpose: a restart signs you out, which is the right
+ * default for a management console.
+ */
+const adminSessions = new Map()
+const ADMIN_SESSION_MS = 12 * 60 * 60 * 1000
+
+function newAdminSession() {
+  const id = crypto.randomBytes(32).toString('hex')
+  adminSessions.set(id, Date.now() + ADMIN_SESSION_MS)
+  return id
+}
+
+function cookieValue(header, name) {
+  for (const part of String(header ?? '').split(';')) {
+    const [key, ...rest] = part.trim().split('=')
+    if (key === name) return rest.join('=')
+  }
+  return null
+}
+
+function hasAdminSession(req) {
+  const id = cookieValue(req.headers.cookie, 'prcy_admin')
+  if (!id) return false
+  const expiry = adminSessions.get(id)
+  if (!expiry) return false
+  if (expiry < Date.now()) {
+    adminSessions.delete(id)
+    return false
+  }
+  return true
+}
+
+/** Either the token (for curl and scripts) or a browser session. */
+function isAdmin(req) {
+  return secretMatches(bearer(req.headers.authorization), ADMIN_TOKEN) || hasAdminSession(req)
+}
+
+async function adminLogin(req, res, ip) {
+  if (throttled(`admin:${ip}`)) return send(res, 429, { error: 'Too many attempts. Wait 15 minutes.' })
+  const body = await readJsonBody(req)
+  if (!secretMatches(body.token, ADMIN_TOKEN)) {
+    noteFailure(`admin:${ip}`)
+    return send(res, 401, { error: 'Wrong admin token.' })
+  }
+  clearFailures(`admin:${ip}`)
+  const id = newAdminSession()
+  send(res, 200, { ok: true }, {
+    // Strict, so nothing another site loads can act as you here.
+    'Set-Cookie': `prcy_admin=${id}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${ADMIN_SESSION_MS / 1000}`
+  })
+}
+
+function adminLogout(req, res) {
+  const id = cookieValue(req.headers.cookie, 'prcy_admin')
+  if (id) adminSessions.delete(id)
+  send(res, 200, { ok: true }, { 'Set-Cookie': 'prcy_admin=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0' })
+}
+
+/** The UI file, preferring an updated copy on the data volume. */
+function uiFile() {
+  const updated = path.join(LIVE_DIR, 'ui.html')
+  return fs.existsSync(updated) ? updated : path.join(APP_DIR, 'ui.html')
+}
+
+async function serveUi(res) {
+  try {
+    const html = await fsp.readFile(uiFile())
+    res.writeHead(200, {
+      'Content-Type': 'text/html; charset=utf-8',
+      'Content-Length': html.length,
+      'Cache-Control': 'no-store'
+    })
+    res.end(html)
+  } catch {
+    send(res, 404, { error: 'the web UI is not installed on this server' })
+  }
+}
+
+// --- what the console reports ------------------------------------------------
+
+async function dirUsage(dir) {
+  let bytes = 0
+  let files = 0
+  const queue = [dir]
+  while (queue.length > 0) {
+    let entries
+    try {
+      entries = await fsp.readdir(queue.pop(), { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const full = path.join(entry.parentPath ?? entry.path, entry.name)
+      if (entry.isDirectory()) queue.push(full)
+      else {
+        try {
+          bytes += (await fsp.stat(full)).size
+          files++
+        } catch {
+          /* vanished mid-walk */
+        }
+      }
+    }
+  }
+  return { bytes, files }
+}
+
+async function adminStatus(res) {
+  const db = await loadUsers()
+  const tokens = await loadTokens()
+  const blobs = await dirUsage(BLOBS_DIR)
+
+  const accounts = []
+  for (const user of db.users) {
+    const saves = await dirUsage(path.join(USERS_DIR, user.id, 'saves'))
+    let libraryBytes = 0
+    let games = 0
+    try {
+      const file = path.join(USERS_DIR, user.id, 'library.json')
+      libraryBytes = (await fsp.stat(file)).size
+      games = Object.keys((await readJson(file, { games: {} })).games ?? {}).length
+    } catch {
+      /* has not synced yet */
+    }
+    accounts.push({
+      username: user.username,
+      id: user.id,
+      createdAt: user.createdAt,
+      devices: Object.values(tokens.tokens).filter((t) => t.userId === user.id).length,
+      games,
+      libraryBytes,
+      saveBytes: saves.bytes,
+      saveFiles: saves.files
+    })
+  }
+
+  send(res, 200, {
+    version: VERSION,
+    node: process.version,
+    uptimeSeconds: Math.round(process.uptime()),
+    dataDir: DATA,
+    // Says whether this process came from an update or from the image.
+    running: fs.existsSync(path.join(LIVE_DIR, 'index.js')) ? 'updated' : 'image',
+    supervised: process.env.PRCY_LAUNCHER === '1',
+    canRollBack: fs.existsSync(path.join(LIVE_DIR, 'index.js.prev')),
+    registrationOpen: Boolean(INVITE_CODE),
+    chunkBytes: CHUNK_LIMIT,
+    accounts,
+    blobBytes: blobs.bytes,
+    blobCount: blobs.files
+  })
+}
+
+// --- updating itself ---------------------------------------------------------
+
+async function fetchText(url) {
+  const response = await fetch(url, { headers: { 'User-Agent': 'prcy-sync' } })
+  if (!response.ok) throw Object.assign(new Error(`${url} returned ${response.status}`), { status: 502 })
+  return response.text()
+}
+
+const sha = (text) => crypto.createHash('sha256').update(text).digest('hex')
+
+/** Reads the VERSION constant out of a candidate file without running it. */
+function declaredVersion(source) {
+  return source.match(/const VERSION = '([^']+)'/)?.[1] ?? 'unknown'
+}
+
+async function checkUpdate(res) {
+  try {
+    const remote = await fetchText(`${UPDATE_URL}index.js`)
+    const current = await fsp.readFile(
+      fs.existsSync(path.join(LIVE_DIR, 'index.js')) ? path.join(LIVE_DIR, 'index.js') : path.join(APP_DIR, 'index.js'),
+      'utf8'
+    )
+    send(res, 200, {
+      source: UPDATE_URL,
+      currentVersion: VERSION,
+      remoteVersion: declaredVersion(remote),
+      different: sha(remote) !== sha(current),
+      remoteBytes: Buffer.byteLength(remote)
+    })
+  } catch (err) {
+    send(res, err.status ?? 502, { error: `Could not reach the update source — ${err.message}` })
+  }
+}
+
+function freePort() {
+  return new Promise((resolve, reject) => {
+    const probe = net.createServer()
+    probe.on('error', reject)
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address()
+      probe.close(() => resolve(port))
+    })
+  })
+}
+
+/**
+ * Boots a candidate against a throwaway data directory and asks it for its
+ * health before trusting it. A file that parses can still fail on start, and
+ * finding that out here rather than after the swap is the whole point.
+ */
+async function smokeTest(entry) {
+  const port = await freePort()
+  const scratch = await fsp.mkdtemp(path.join(os.tmpdir(), 'prcy-check-'))
+  const child = spawn(process.execPath, [entry], {
+    env: {
+      ...process.env,
+      PRCY_LAUNCHER: '',
+      PRCY_PORT: String(port),
+      PRCY_DATA: scratch,
+      PRCY_ADMIN_TOKEN: crypto.randomBytes(16).toString('hex'),
+      PRCY_INVITE_CODE: ''
+    },
+    stdio: ['ignore', 'pipe', 'pipe']
+  })
+
+  let output = ''
+  child.stdout.on('data', (d) => (output += d))
+  child.stderr.on('data', (d) => (output += d))
+
+  try {
+    const deadline = Date.now() + 15_000
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) {
+        throw new Error(`it exited immediately — ${output.trim().split('\n').slice(-3).join(' ')}`)
+      }
+      try {
+        const health = await fetch(`http://127.0.0.1:${port}/health`)
+        const json = await health.json()
+        if (json?.service === 'prcy-sync') return { ok: true, version: json.version ?? 'unknown' }
+      } catch {
+        /* not listening yet */
+      }
+      await new Promise((r) => setTimeout(r, 300))
+    }
+    throw new Error('it never answered /health')
+  } finally {
+    child.kill('SIGKILL')
+    await fsp.rm(scratch, { recursive: true, force: true }).catch(() => {})
+  }
+}
+
+/**
+ * Copies the account files somewhere safe. They are tiny next to the saves and
+ * they are the part that cannot be rebuilt from another device.
+ */
+async function snapshotAccounts() {
+  const dir = path.join(DATA, 'backups', `pre-update-${Date.now()}`)
+  await fsp.mkdir(dir, { recursive: true })
+  for (const file of [USERS_FILE, TOKENS_FILE]) {
+    if (fs.existsSync(file)) await fsp.copyFile(file, path.join(dir, path.basename(file)))
+  }
+  for (const user of (await loadUsers()).users) {
+    const library = path.join(USERS_DIR, user.id, 'library.json')
+    if (fs.existsSync(library)) {
+      await fsp.copyFile(library, path.join(dir, `library-${user.username}.json`))
+    }
+  }
+
+  // Keep the ten most recent snapshots.
+  const all = (await fsp.readdir(path.join(DATA, 'backups'))).filter((n) => n.startsWith('pre-update-')).sort()
+  for (const old of all.slice(0, Math.max(0, all.length - 10))) {
+    await fsp.rm(path.join(DATA, 'backups', old), { recursive: true, force: true })
+  }
+  return dir
+}
+
+/**
+ * Downloads, checks and swaps in a new server, then exits so the launcher
+ * starts it. Nothing under /data other than server/ is touched: accounts,
+ * saves and blobs are never read or written here.
+ */
+async function applyUpdate(req, res) {
+  if (process.env.PRCY_LAUNCHER !== '1') {
+    return send(res, 409, {
+      error: 'This server was started directly, so it cannot restart itself. Run it through launch.js (the container does).'
+    })
+  }
+
+  const staged = path.join(LIVE_DIR, '.staged')
+  await fsp.rm(staged, { recursive: true, force: true })
+  await fsp.mkdir(staged, { recursive: true })
+
+  try {
+    const downloaded = {}
+    for (const name of UPDATE_FILES) {
+      downloaded[name] = await fetchText(`${UPDATE_URL}${name}`)
+      await fsp.writeFile(path.join(staged, name), downloaded[name])
+    }
+
+    const check = await smokeTest(path.join(staged, 'index.js'))
+
+    // Only once the candidate has proved it runs: a snapshot of the small,
+    // irreplaceable files, so a bad day is survivable even though an update
+    // does not touch them.
+    const snapshot = await snapshotAccounts()
+
+    const live = path.join(LIVE_DIR, 'index.js')
+    if (fs.existsSync(live)) await fsp.copyFile(live, path.join(LIVE_DIR, 'index.js.prev'))
+    for (const name of UPDATE_FILES) {
+      await fsp.rename(path.join(staged, name), path.join(LIVE_DIR, name))
+    }
+    await fsp.rm(staged, { recursive: true, force: true })
+
+    send(res, 200, {
+      ok: true,
+      from: VERSION,
+      to: declaredVersion(downloaded['index.js']),
+      smokeTested: check.ok,
+      snapshot,
+      restarting: true
+    })
+    // Let the reply reach the browser, then hand over to the launcher.
+    setTimeout(() => process.exit(75), 500)
+  } catch (err) {
+    await fsp.rm(staged, { recursive: true, force: true }).catch(() => {})
+    send(res, err.status ?? 500, { error: `Update refused — ${err.message}. Nothing was changed.` })
+  }
+}
+
+/** Puts the previous version back, for when an update works but misbehaves. */
+async function rollBackUpdate(res) {
+  if (process.env.PRCY_LAUNCHER !== '1') {
+    return send(res, 409, { error: 'This server cannot restart itself; start it through launch.js.' })
+  }
+  const live = path.join(LIVE_DIR, 'index.js')
+  const previous = path.join(LIVE_DIR, 'index.js.prev')
+  if (fs.existsSync(previous)) {
+    await fsp.copyFile(previous, live)
+    await fsp.rm(previous, { force: true })
+  } else if (fs.existsSync(live)) {
+    await fsp.rm(live, { force: true })
+    await fsp.rm(path.join(LIVE_DIR, 'ui.html'), { force: true })
+  } else {
+    return send(res, 409, { error: 'Already running the version from the image.' })
+  }
+  send(res, 200, { ok: true, restarting: true })
+  setTimeout(() => process.exit(75), 500)
+}
+
 // --- library -----------------------------------------------------------------
 
 /** GET /v1/library — this account's metadata document. */
@@ -647,11 +1016,14 @@ const server = http.createServer(async (req, res) => {
     const { pathname } = new URL(req.url, 'http://x')
     const ip = String(req.headers['cf-connecting-ip'] ?? req.socket.remoteAddress ?? 'unknown')
 
+    if (pathname === '/' || pathname === '/index.html') return await serveUi(res)
+
     if (pathname === '/health') {
       const db = await loadUsers()
       return send(res, 200, {
         ok: true,
         service: 'prcy-sync',
+        version: VERSION,
         accounts: true,
         registrationOpen: Boolean(INVITE_CODE),
         hasUsers: db.users.length > 0,
@@ -671,8 +1043,23 @@ const server = http.createServer(async (req, res) => {
 
     // The admin token is a separate credential and never stands in for a user.
     if (parts[1] === 'admin') {
-      if (!secretMatches(bearer(req.headers.authorization), ADMIN_TOKEN)) {
-        return send(res, 401, { error: 'unauthorized' })
+      // Signing in to the console is the one admin route that cannot require
+      // an existing session.
+      if (parts[2] === 'session' && parts.length === 3) {
+        if (req.method === 'POST') return await adminLogin(req, res, ip)
+        if (req.method === 'DELETE') return adminLogout(req, res)
+      }
+      if (!isAdmin(req)) return send(res, 401, { error: 'unauthorized' })
+
+      if (parts[2] === 'status' && req.method === 'GET') return await adminStatus(res)
+      if (parts[2] === 'update' && parts[3] === 'check' && req.method === 'GET') {
+        return await checkUpdate(res)
+      }
+      if (parts[2] === 'update' && parts[3] === 'apply' && req.method === 'POST') {
+        return await applyUpdate(req, res)
+      }
+      if (parts[2] === 'update' && parts[3] === 'rollback' && req.method === 'POST') {
+        return await rollBackUpdate(res)
       }
       if (parts[2] === 'users' && parts.length === 3) {
         if (req.method === 'GET') return await adminList(res)

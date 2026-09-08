@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PRCY sync server</title>
+    <style>
+      :root {
+        --bg: #101018;
+        --panel: #181823;
+        --panel-2: #1f1f2c;
+        --line: #2a2a3a;
+        --text: #e8e8f0;
+        --dim: #9a9ab0;
+        --accent: #6f6bff;
+        --danger: #ff6b6b;
+        --ok: #4ade80;
+        --warn: #fbbf24;
+        color-scheme: dark;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 14px/1.5 "Segoe UI", system-ui, sans-serif;
+      }
+      main { max-width: 900px; margin: 0 auto; padding: 28px 20px 60px; }
+      h1 { font-size: 20px; margin: 0; }
+      h2 { font-size: 15px; margin: 0 0 12px; letter-spacing: 0.02em; }
+      header {
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 12px; margin-bottom: 22px;
+      }
+      .mark {
+        width: 34px; height: 34px; border-radius: 9px; flex: none;
+        background: linear-gradient(140deg, var(--accent), #8f6bff);
+        display: grid; place-items: center; font-weight: 700;
+      }
+      .brand { display: flex; align-items: center; gap: 12px; }
+      .brand small { display: block; color: var(--dim); font-size: 12px; }
+      section {
+        background: var(--panel); border: 1px solid var(--line);
+        border-radius: 12px; padding: 18px; margin-bottom: 16px;
+      }
+      .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
+      .stat small { display: block; color: var(--dim); font-size: 12px; }
+      .stat strong { font-size: 17px; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--line); }
+      th { color: var(--dim); font-weight: 500; font-size: 12px; text-transform: uppercase; }
+      td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      button {
+        font: inherit; color: inherit; cursor: pointer;
+        background: var(--panel-2); border: 1px solid var(--line);
+        border-radius: 8px; padding: 7px 13px;
+      }
+      button:hover:not(:disabled) { border-color: var(--accent); }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.primary { background: var(--accent); border-color: var(--accent); }
+      button.danger { color: var(--danger); }
+      button.small { padding: 4px 9px; font-size: 12px; }
+      input {
+        font: inherit; color: inherit; background: var(--panel-2);
+        border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px;
+      }
+      input:focus { outline: none; border-color: var(--accent); }
+      .row { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+      .dim { color: var(--dim); }
+      .ok { color: var(--ok); }
+      .warn { color: var(--warn); }
+      .bad { color: var(--danger); }
+      .note {
+        border-left: 3px solid var(--line); padding: 8px 12px;
+        margin-top: 12px; color: var(--dim); font-size: 13px;
+      }
+      #login { max-width: 380px; margin: 12vh auto; }
+      #login input { width: 100%; margin: 10px 0; }
+      #toast {
+        position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+        background: var(--panel-2); border: 1px solid var(--line);
+        border-radius: 9px; padding: 10px 16px; max-width: 80vw;
+      }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="login" hidden>
+        <div class="brand" style="margin-bottom: 14px">
+          <div class="mark">P</div>
+          <div><h1>PRCY sync</h1><small>server console</small></div>
+        </div>
+        <input id="token" type="password" placeholder="Admin token" autocomplete="current-password" />
+        <button class="primary" id="signin" style="width: 100%">Sign in</button>
+        <div class="note">
+          This is <code>PRCY_ADMIN_TOKEN</code> from the container, not your account password.
+          It manages accounts and updates; it cannot read anyone's library or saves.
+        </div>
+      </section>
+
+      <div id="console" hidden>
+        <header>
+          <div class="brand">
+            <div class="mark">P</div>
+            <div>
+              <h1>PRCY sync server</h1>
+              <small id="subtitle">—</small>
+            </div>
+          </div>
+          <button class="small" id="signout">Sign out</button>
+        </header>
+
+        <section>
+          <h2>Status</h2>
+          <div class="grid" id="stats"></div>
+        </section>
+
+        <section>
+          <h2>Updates</h2>
+          <div class="row">
+            <button id="check">Check for updates</button>
+            <button class="primary" id="apply" hidden>Update and restart</button>
+            <button class="danger" id="rollback" hidden>Roll back</button>
+            <span id="updateState" class="dim">Not checked yet.</span>
+          </div>
+          <div class="note">
+            An update replaces the server's own code only. Accounts, saves and cover art live
+            elsewhere on the data volume and are never read or written by it. The new version is
+            booted against a throwaway directory first, and if it fails to answer it is discarded
+            without being installed. The previous version stays on disk so you can step back.
+          </div>
+        </section>
+
+        <section>
+          <h2>Accounts</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Account</th><th class="num">Games</th><th class="num">Saves</th>
+                <th class="num">Devices</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="accounts"></tbody>
+          </table>
+          <div class="row" style="margin-top: 14px">
+            <input id="newUser" placeholder="username" />
+            <input id="newPass" type="password" placeholder="password (8+ characters)" />
+            <button id="create">Add account</button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div id="toast" hidden></div>
+
+    <script>
+      const $ = (id) => document.getElementById(id)
+      let toastTimer
+
+      function toast(message, kind) {
+        const el = $('toast')
+        el.textContent = message
+        el.className = kind ?? ''
+        el.hidden = false
+        clearTimeout(toastTimer)
+        toastTimer = setTimeout(() => (el.hidden = true), 5000)
+      }
+
+      async function call(method, route, body) {
+        const res = await fetch(route, {
+          method,
+          headers: body ? { 'Content-Type': 'application/json' } : {},
+          body: body ? JSON.stringify(body) : undefined
+        })
+        let json = {}
+        try {
+          json = await res.json()
+        } catch {
+          /* empty reply */
+        }
+        return { status: res.status, json }
+      }
+
+      const size = (bytes) => {
+        if (!bytes) return '0 B'
+        const units = ['B', 'KB', 'MB', 'GB', 'TB']
+        const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+        return `${(bytes / 1024 ** i).toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+      }
+
+      const duration = (seconds) => {
+        if (seconds < 90) return `${seconds} s`
+        if (seconds < 5400) return `${Math.round(seconds / 60)} min`
+        if (seconds < 172800) return `${Math.round(seconds / 3600)} h`
+        return `${Math.round(seconds / 86400)} days`
+      }
+
+      function stat(label, value, cls) {
+        return `<div class="stat"><small>${label}</small><strong class="${cls ?? ''}">${value}</strong></div>`
+      }
+
+      async function refresh() {
+        const { status, json } = await call('GET', '/v1/admin/status')
+        if (status === 401) return showLogin()
+
+        $('subtitle').textContent = `v${json.version} · Node ${json.node} · up ${duration(json.uptimeSeconds)}`
+        $('stats').innerHTML = [
+          stat('Accounts', json.accounts.length),
+          stat('Saved games', json.accounts.reduce((n, a) => n + a.games, 0)),
+          stat('Save archives', size(json.accounts.reduce((n, a) => n + a.saveBytes, 0))),
+          stat('Cover art', `${size(json.blobBytes)} · ${json.blobCount}`),
+          stat('Running', json.running === 'updated' ? 'updated build' : 'image build'),
+          stat(
+            'Sign-ups',
+            json.registrationOpen ? 'open with invite code' : 'closed',
+            json.registrationOpen ? 'warn' : ''
+          ),
+          stat('Upload chunk', size(json.chunkBytes)),
+          stat(
+            'Self-update',
+            json.supervised ? 'available' : 'not supervised',
+            json.supervised ? 'ok' : 'warn'
+          )
+        ].join('')
+
+        $('rollback').hidden = !json.canRollBack
+
+        $('accounts').innerHTML = json.accounts
+          .map(
+            (a) => `
+            <tr>
+              <td>${a.username}</td>
+              <td class="num">${a.games}</td>
+              <td class="num">${size(a.saveBytes)}</td>
+              <td class="num">${a.devices}</td>
+              <td style="text-align:right; white-space:nowrap">
+                <button class="small" data-reset="${a.username}">Reset password</button>
+                <button class="small danger" data-delete="${a.username}">Delete</button>
+              </td>
+            </tr>`
+          )
+          .join('')
+
+        for (const button of document.querySelectorAll('[data-reset]')) {
+          button.onclick = () => resetPassword(button.dataset.reset)
+        }
+        for (const button of document.querySelectorAll('[data-delete]')) {
+          button.onclick = () => deleteAccount(button.dataset.delete)
+        }
+      }
+
+      async function resetPassword(username) {
+        const password = prompt(`New password for ${username} (8+ characters).\n\nAll of their devices will be signed out.`)
+        if (!password) return
+        const { status, json } = await call('POST', `/v1/admin/users/${username}/password`, { password })
+        toast(status === 200 ? `Password reset for ${username}.` : json.error, status === 200 ? '' : 'bad')
+        refresh()
+      }
+
+      async function deleteAccount(username) {
+        const typed = prompt(
+          `Deleting ${username} removes their library and every save they have here. This cannot be undone.\n\nType the username to confirm:`
+        )
+        if (typed !== username) return
+        const { status, json } = await call('DELETE', `/v1/admin/users/${username}`)
+        toast(status === 200 ? `${username} deleted.` : json.error, status === 200 ? '' : 'bad')
+        refresh()
+      }
+
+      $('create').onclick = async () => {
+        const username = $('newUser').value.trim()
+        const password = $('newPass').value
+        const { status, json } = await call('POST', '/v1/admin/users', { username, password })
+        if (status === 200) {
+          $('newUser').value = ''
+          $('newPass').value = ''
+          toast(`Added ${username}. They can now sign in from the app.`)
+        } else {
+          toast(json.error, 'bad')
+        }
+        refresh()
+      }
+
+      $('check').onclick = async () => {
+        $('updateState').textContent = 'Checking…'
+        const { status, json } = await call('GET', '/v1/admin/update/check')
+        if (status !== 200) {
+          $('updateState').innerHTML = `<span class="bad">${json.error}</span>`
+          return
+        }
+        if (json.different) {
+          $('updateState').innerHTML = `<span class="warn">v${json.remoteVersion} is available (running v${json.currentVersion}).</span>`
+          $('apply').hidden = false
+        } else {
+          $('updateState').innerHTML = `<span class="ok">Up to date — v${json.currentVersion}.</span>`
+          $('apply').hidden = true
+        }
+      }
+
+      $('apply').onclick = async () => {
+        if (!confirm('Download the new server, test it, and restart?\n\nSaves and accounts are not touched.')) return
+        $('apply').disabled = true
+        $('updateState').textContent = 'Downloading and testing…'
+        const { status, json } = await call('POST', '/v1/admin/update/apply')
+        $('apply').disabled = false
+        if (status !== 200) {
+          $('updateState').innerHTML = `<span class="bad">${json.error}</span>`
+          return
+        }
+        $('updateState').innerHTML = `<span class="ok">Updated ${json.from} → ${json.to}. Restarting…</span>`
+        waitForRestart()
+      }
+
+      $('rollback').onclick = async () => {
+        if (!confirm('Put the previous version back and restart?')) return
+        const { status, json } = await call('POST', '/v1/admin/update/rollback')
+        if (status !== 200) return toast(json.error, 'bad')
+        $('updateState').textContent = 'Rolling back…'
+        waitForRestart()
+      }
+
+      /** The console outlives the process it manages, so it waits for the new one. */
+      async function waitForRestart() {
+        for (let i = 0; i < 40; i++) {
+          await new Promise((r) => setTimeout(r, 700))
+          try {
+            const health = await fetch('/health', { cache: 'no-store' })
+            const json = await health.json()
+            if (json?.service === 'prcy-sync') {
+              toast(`Back up on v${json.version}.`)
+              $('apply').hidden = true
+              return refresh()
+            }
+          } catch {
+            /* still down */
+          }
+        }
+        toast('The server has not come back yet — check the container log.', 'bad')
+      }
+
+      function showLogin() {
+        $('console').hidden = true
+        $('login').hidden = false
+        $('token').focus()
+      }
+
+      async function signIn() {
+        const { status, json } = await call('POST', '/v1/admin/session', { token: $('token').value })
+        if (status !== 200) return toast(json.error ?? 'Sign-in failed.', 'bad')
+        $('token').value = ''
+        $('login').hidden = true
+        $('console').hidden = false
+        refresh()
+      }
+
+      $('signin').onclick = signIn
+      $('token').onkeydown = (e) => e.key === 'Enter' && signIn()
+      $('signout').onclick = async () => {
+        await call('DELETE', '/v1/admin/session')
+        showLogin()
+      }
+
+      // A live session means the console can come straight up.
+      call('GET', '/v1/admin/status').then(({ status }) => {
+        if (status === 200) {
+          $('console').hidden = false
+          refresh()
+        } else {
+          showLogin()
+        }
+      })
+    </script>
+  </body>
+</html>
