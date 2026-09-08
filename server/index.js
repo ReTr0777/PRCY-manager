@@ -23,7 +23,7 @@ import crypto from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 
 /** Bumped by hand when the server changes; shown in the web UI. */
-const VERSION = '0.4.0'
+const VERSION = '0.5.0'
 
 const PORT = Number(process.env.PRCY_PORT ?? 8787)
 const DATA = process.env.PRCY_DATA ?? path.join(process.cwd(), 'data')
@@ -31,6 +31,13 @@ const ADMIN_TOKEN = process.env.PRCY_ADMIN_TOKEN ?? ''
 const INVITE_CODE = process.env.PRCY_INVITE_CODE ?? ''
 /** Set when a reverse proxy sits in front, so forwarded client IPs are real. */
 const TRUST_PROXY = process.env.PRCY_TRUST_PROXY === '1'
+/**
+ * A second port that serves share links and nothing else. Set it when you want
+ * people outside your network to be able to download the app: publish this port
+ * and leave the main one private, and there is no console, no API and no
+ * account data behind the public address at all.
+ */
+const PUBLIC_PORT = Number(process.env.PRCY_PUBLIC_PORT ?? 0)
 
 /**
  * The largest body accepted in one request. Anything bigger has to arrive as
@@ -1332,6 +1339,40 @@ const server = http.createServer(async (req, res) => {
 })
 
 // Uploading a multi-gigabyte save over a slow link must not trip the idle timer.
+/**
+ * The download-only listener. It shares the process and the same share token,
+ * but its router knows exactly two routes, so nothing else is reachable through
+ * it even if the port is wide open to the internet.
+ */
+const publicServer = PUBLIC_PORT
+  ? http.createServer(async (req, res) => {
+      try {
+        const { pathname } = new URL(req.url, 'http://x')
+        const ip = clientIp(req)
+        const parts = pathname.split('/').filter(Boolean)
+
+        if (pathname === '/health') {
+          return send(res, 200, { ok: true, service: 'prcy-sync', role: 'downloads' })
+        }
+        if (parts[0] === 'd' && parts.length === 2 && (req.method === 'GET' || req.method === 'HEAD')) {
+          return await shareDownload(req, res, parts[1], ip, req.method === 'HEAD')
+        }
+        send(res, 404, { error: 'not found' })
+      } catch (err) {
+        console.error('[prcy-sync public]', err)
+        send(res, 500, { error: 'server error' })
+      }
+    })
+  : null
+
+if (publicServer) {
+  publicServer.requestTimeout = 0
+  publicServer.headersTimeout = 60_000
+  publicServer.listen(PUBLIC_PORT, () =>
+    console.log(`downloads-only listener on :${PUBLIC_PORT} — safe to publish`)
+  )
+}
+
 server.requestTimeout = 0
 server.headersTimeout = 60_000
 

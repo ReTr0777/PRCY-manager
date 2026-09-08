@@ -201,7 +201,10 @@ PRCY_URL=http://tower.local:8787 PRCY_ADMIN_TOKEN=… npm run publish
 
 The console can also mint a no-account **share link** for the newest build — an
 unguessable path that serves the installer to someone who does not have the app
-yet and so cannot sign in to get it. Revocable from the same place.
+yet and so cannot sign in to get it. Revocable from the same place. Setting
+`PRCY_PUBLIC_PORT` opens a second listener that serves *only* those links, so
+that port can face the internet while the console, the API and every save stay
+on the private one.
 
 It uploads in chunks like a save does, and only the admin token may publish — a
 signed-in account is refused. Each device sees the new version under

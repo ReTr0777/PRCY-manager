@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     ports:
       - '8787:8787'
+      # The downloads-only listener. Publish this one if you want people
+      # outside your network to be able to fetch the installer.
+      - '8788:8788'
     environment:
       # Generate each with:
       #   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
@@ -19,6 +22,8 @@ services:
       # limit — Cloudflare's free and Pro plans cut off at 100 MB. Bigger
       # uploads are split into chunks by the app automatically.
       PRCY_CHUNK_MB: ${PRCY_CHUNK_MB:-8}
+      # Serves share links and nothing else. Leave unset to turn it off.
+      PRCY_PUBLIC_PORT: ${PRCY_PUBLIC_PORT:-8788}
     volumes:
       # On Unraid this is usually /mnt/user/appdata/prcy-sync
       - ./data:/data
