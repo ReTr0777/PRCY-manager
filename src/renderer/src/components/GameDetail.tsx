@@ -171,6 +171,8 @@ export default function GameDetail(props: Props): JSX.Element {
         </div>
       </div>
 
+      <SaveLocations game={game} />
+
       <div className="field">
         <label>Folder</label>
         <div className="path" title={game.folder}>

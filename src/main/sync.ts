@@ -10,7 +10,6 @@ import { store } from './store'
 import type {
   ConflictChoice,
   Game,
-  SaveConflict,
   SyncAccount,
   SyncDevice,
   SyncResult,

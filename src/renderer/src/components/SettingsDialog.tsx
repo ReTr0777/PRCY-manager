@@ -125,6 +125,8 @@ export default function SettingsDialog({ state, onClose, onToast, onConflicts }:
           </p>
         </section>
 
+        <SyncSettings state={state} onToast={onToast} onConflicts={onConflicts} />
+
         <section>
           <h3>Hidden vault</h3>
           {state.vault === 'unset' ? (
